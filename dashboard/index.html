@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-NIDS Live Telemetry & Detection Console</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-badge">AI-NIDS</div>
+        <div class="brand-title">
+          <h1>Network Telemetry & Intrusion Detection</h1>
+          <p class="subtitle">Live Packet-Level Observation & UNSW-NB15 Inference Verification</p>
+        </div>
+      </div>
+      <div class="system-badges" id="systemBadges">
+        <div class="status-badge" id="badgeServer"><span class="dot active"></span> TCP Server (5000): <strong id="serverState">LISTENING</strong></div>
+        <div class="status-badge" id="badgeCapture"><span class="dot active"></span> Packet Capture: <strong id="captureState">ACTIVE</strong></div>
+        <div class="status-badge" id="badgeFlow"><span class="dot active"></span> Flow Tracker: <strong id="flowState">ACTIVE</strong></div>
+        <div class="status-badge" id="badgeGate"><span class="dot warning"></span> Feature Gate: <strong id="gateState">42-FEATURE STRICT</strong></div>
+        <div class="status-badge" id="badgeML"><span class="dot warning"></span> ML Inference: <strong id="mlState">SAFE REFUSAL</strong></div>
+      </div>
+    </header>
+
+    <!-- Domain Shift & Integrity Notice -->
+    <div class="notice-banner">
+      <div class="notice-icon">&#9432;</div>
+      <div class="notice-text">
+        <strong>Domain Shift & Semantic Integrity Policy:</strong> The underlying XGBoost model was trained on the benchmark UNSW-NB15 dataset. Live localhost JSON-over-TCP traffic is monitored with genuine Scapy packet telemetry. In accordance with strict anti-fabrication rules, if any protocol-specific feature cannot be verified with UNSW-NB15 semantics, inference is safely refused rather than estimated or fabricated.
+      </div>
+    </div>
+
+    <!-- Live Telemetry Grid -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Packets Captured</div>
+        <div class="metric-value" id="valPackets">0</div>
+        <div class="metric-detail" id="detailIface">Interface: Loopback (\Device\NPF_Loopback)</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">TCP Flows Reconstructed</div>
+        <div class="metric-value" id="valFlows">0</div>
+        <div class="metric-detail" id="detailActiveFlows">Active: 0 flows | Total: 0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Vectors Validated vs Rejected</div>
+        <div class="metric-value" id="valVectors">0 / 0</div>
+        <div class="metric-detail" id="detailVectors">Strict 42-Feature Gate</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Live Model Predictions</div>
+        <div class="metric-value" id="valPredictions">0</div>
+        <div class="metric-detail" id="detailClasses">Benign: 0 | Intrusion: 0 (0 Fabricated)</div>
+      </div>
+    </section>
+
+    <!-- Main Content Panels -->
+    <div class="main-layout">
+      <!-- Left Column: Detection Status, Feature Validation, and Demo B -->
+      <div class="layout-left">
+        <!-- Live Detection Status Panel -->
+        <section class="panel panel-detection">
+          <div class="panel-header">
+            <h2>Live Detection Status (Demo A — Live Traffic)</h2>
+            <span class="panel-status-tag skipped" id="inferenceBadge">WAITING FOR FLOWS</span>
+          </div>
+          <div class="detection-body">
+            <div class="detection-result-card" id="resultCard">
+              <div class="result-title">Latest Evaluation Verdict</div>
+              <div class="result-status skipped" id="resultStatus">Awaiting Live Traffic</div>
+              <div class="result-explanation" id="resultExplanation">
+                TCP traffic on port 5000 is captured by Scapy, reconstructed into bidirectional flows, and passed through the strict 42-feature gate.
+              </div>
+            </div>
+            <div class="flow-meta-grid">
+              <div class="meta-item"><span class="meta-k">Source:</span> <span class="meta-v" id="metaSrc">-</span></div>
+              <div class="meta-item"><span class="meta-k">Destination:</span> <span class="meta-v" id="metaDst">-</span></div>
+              <div class="meta-item"><span class="meta-k">Protocol:</span> <span class="meta-v" id="metaProto">TCP</span></div>
+              <div class="meta-item"><span class="meta-k">Duration:</span> <span class="meta-v" id="metaDur">0.000s</span></div>
+              <div class="meta-item"><span class="meta-k">Packets:</span> <span class="meta-v" id="metaPkts">0 (0s / 0d)</span></div>
+              <div class="meta-item"><span class="meta-k">Bytes:</span> <span class="meta-v" id="metaBytes">0 B (0s / 0d)</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Feature Validation & Provenance Breakdown -->
+        <section class="panel panel-provenance">
+          <div class="panel-header">
+            <h2>Feature Validation Gate (42 Features)</h2>
+            <span class="provenance-counter">Strict 42/42 Rule</span>
+          </div>
+          <div class="provenance-summary">
+            <div class="gate-summary-stats">
+              <div class="gate-stat-box">
+                <span class="stat-num text-success">37</span>
+                <span class="stat-lbl">Observable / Transport</span>
+              </div>
+              <div class="gate-stat-box">
+                <span class="stat-num text-danger">5</span>
+                <span class="stat-lbl">Protocol-Specific Unavailable</span>
+              </div>
+              <div class="gate-stat-box">
+                <span class="stat-num text-warning">REFUSED</span>
+                <span class="stat-lbl">Live ML Action</span>
+              </div>
+            </div>
+            <div class="provenance-breakdown">
+              <div class="cat-pill cat-a">
+                <strong>Cat A (Direct Headers — 12):</strong> <code>dur, spkts, dpkts, sbytes, dbytes, sttl, dttl, swin, dwin, stcpb, dtcpb, proto</code>
+              </div>
+              <div class="cat-pill cat-b">
+                <strong>Cat B (Derived Transport — 25):</strong> <code>rate, sload, dload, sloss, dloss, sinpkt, dinpkt, sjit, djit, tcprtt, synack, ackdat, smean, dmean, state, ct_*</code>
+              </div>
+              <div class="cat-pill cat-c">
+                <strong>Cat C (Protocol-Specific — 5 UNAVAILABLE):</strong>
+                <code>trans_depth, response_body_len, ct_flw_http_mthd, is_ftp_login, ct_ftp_cmd</code>
+                <br><span class="badge-tag invalid">UNAVAILABLE</span> on custom JSON/TCP traffic. Zero-fabrication prevents fake filling.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Controlled Model Pipeline Demonstration (Demo B) -->
+        <section class="panel panel-demo">
+          <div class="panel-header">
+            <h2>Controlled Model Demonstration (Demo B — Authoritative Vector)</h2>
+            <span class="panel-status-tag valid">OFFLINE AUTHORITATIVE</span>
+          </div>
+          <div class="demo-body">
+            <p class="demo-desc">
+              Demonstrates the frozen Phase-5 XGBoost model and preprocessor using an offline, complete authoritative 42-feature UNSW-NB15 vector. Decoupled from live network capture to preserve zero fabrication.
+            </p>
+            <div class="demo-actions">
+              <button id="btnRunDemo" class="btn-demo">Run Authoritative Model Pipeline</button>
+            </div>
+            <div id="demoResultCard" class="demo-result-card" style="display: none;">
+              <div class="demo-result-header">
+                <span>Model Prediction: <strong id="demoPred" class="text-success">-</strong></span>
+                <span>Probability: <strong id="demoProb">-</strong></span>
+              </div>
+              <div class="demo-result-details">
+                <small id="demoNote">Verified with frozen Phase-5 artifacts.</small>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right Column: Recent Live Telemetry Events -->
+      <div class="layout-right">
+        <section class="panel panel-events">
+          <div class="panel-header">
+            <h2>Live Telemetry Stream (Scapy Packet Capture)</h2>
+            <div class="stream-indicator"><span class="pulse-dot"></span> <span id="streamLabel">SSE Connected</span></div>
+          </div>
+          <div class="table-container">
+            <table class="events-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Flow Identifier</th>
+                  <th>Packets</th>
+                  <th>Duration</th>
+                  <th>Feature Gate</th>
+                  <th>Action / Inference</th>
+                </tr>
+              </thead>
+              <tbody id="eventsTableBody">
+                <tr class="empty-row">
+                  <td colspan="6">No telemetry events yet. Start client/server traffic on port 5000 to observe live flows.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-left">
+        <span>AI-NIDS Project &bull; Final Engineering Validation &bull; Phase 7A</span>
+      </div>
+      <div class="footer-right">
+        <span>Windows Npcap Loopback &bull; Scapy 2.6 &bull; XGBoost 3.2 &bull; Flask 3.0</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

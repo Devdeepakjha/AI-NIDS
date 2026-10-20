@@ -1,0 +1,458 @@
+{
+  "summary": {
+    "total_model_features": 42,
+    "directly_observable_count": 6,
+    "legitimately_derivable_count": 15,
+    "not_observable_count": 21,
+    "directly_observable_features": [
+      "proto",
+      "service",
+      "state",
+      "dur",
+      "sbytes",
+      "dbytes"
+    ],
+    "legitimately_derivable_features": [
+      "sload",
+      "dload",
+      "trans_depth",
+      "response_body_len",
+      "ct_srv_src",
+      "ct_dst_ltm",
+      "ct_src_dport_ltm",
+      "ct_dst_sport_ltm",
+      "ct_dst_src_ltm",
+      "is_ftp_login",
+      "ct_ftp_cmd",
+      "ct_flw_http_mthd",
+      "ct_src_ltm",
+      "ct_srv_dst",
+      "is_sm_ips_ports"
+    ],
+    "not_observable_features": [
+      "spkts",
+      "dpkts",
+      "rate",
+      "sttl",
+      "dttl",
+      "sloss",
+      "dloss",
+      "sinpkt",
+      "dinpkt",
+      "sjit",
+      "djit",
+      "swin",
+      "stcpb",
+      "dtcpb",
+      "dwin",
+      "tcprtt",
+      "synack",
+      "ackdat",
+      "smean",
+      "dmean",
+      "ct_state_ttl"
+    ],
+    "architectural_limitation_statement": "Category C features represent kernel/packet-level network metrics (e.g. spkts, dpkts, sttl, tcprtt, jitter, window advertisement). Because our architecture operates at the application stream socket layer (SOCK_STREAM) without packet sniffing, these features cannot be legitimately observed. In accordance with strict cybersecurity integrity rules, fabrication of missing features is prohibited. The live bridge explicitly identifies this boundary."
+  },
+  "feature_details": {
+    "proto": {
+      "category": "A_DIRECTLY_OBSERVABLE",
+      "definition": "Transaction protocol (e.g. tcp, udp, icmp).",
+      "type": "categorical",
+      "unit": "protocol_name",
+      "measurement_point": "Server socket creation (SOCK_STREAM = tcp).",
+      "is_direct": true,
+      "derivation": "Directly observed from the active socket protocol (always 'tcp')."
+    },
+    "service": {
+      "category": "A_DIRECTLY_OBSERVABLE",
+      "definition": "Application service protocol (e.g. http, ftp, smtp, -).",
+      "type": "categorical",
+      "unit": "service_name",
+      "measurement_point": "Application layer protocol framing (shared.protocol).",
+      "is_direct": true,
+      "derivation": "Observed from application message headers ('-' for custom TCP protocol)."
+    },
+    "state": {
+      "category": "A_DIRECTLY_OBSERVABLE",
+      "definition": "State of transaction / connection (e.g. CON, FIN, REQ, INT).",
+      "type": "categorical",
+      "unit": "state_code",
+      "measurement_point": "Socket lifecycle management in handle_client().",
+      "is_direct": true,
+      "derivation": "Directly observed: 'CON' while connected, 'FIN' on graceful close."
+    },
+    "dur": {
+      "category": "A_DIRECTLY_OBSERVABLE",
+      "definition": "Record total flow duration in seconds.",
+      "type": "numerical",
+      "unit": "seconds",
+      "measurement_point": "Connection lifecycle timer (perf_counter() at connect vs disconnect).",
+      "is_direct": true,
+      "derivation": "Directly observed: conn_end_time - conn_start_time."
+    },
+    "sbytes": {
+      "category": "A_DIRECTLY_OBSERVABLE",
+      "definition": "Source to destination transaction bytes.",
+      "type": "numerical",
+      "unit": "bytes",
+      "measurement_point": "Server socket recv() counter.",
+      "is_direct": true,
+      "derivation": "Directly observed: sum of all bytes received from client socket."
+    },
+    "dbytes": {
+      "category": "A_DIRECTLY_OBSERVABLE",
+      "definition": "Destination to source transaction bytes.",
+      "type": "numerical",
+      "unit": "bytes",
+      "measurement_point": "Server socket sendall() counter.",
+      "is_direct": true,
+      "derivation": "Directly observed: sum of all bytes sent by server in responses."
+    },
+    "spkts": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source to destination IP packet count.",
+      "type": "numerical",
+      "unit": "packets",
+      "measurement_point": "Network/IP layer (libpcap / raw sockets required).",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Application-layer TCP sockets (SOCK_STREAM) provide a byte stream; individual IP packets and TCP segments are handled internally by the OS kernel network stack."
+    },
+    "dpkts": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination to source IP packet count.",
+      "type": "numerical",
+      "unit": "packets",
+      "measurement_point": "Network/IP layer (libpcap / raw sockets required).",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "TCP ACK and response segment packetization is handled asynchronously by the kernel network stack; not visible at application socket level."
+    },
+    "rate": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Total packets per second: (spkts + dpkts) / dur.",
+      "type": "numerical",
+      "unit": "packets/sec",
+      "measurement_point": "Flow calculation.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "In UNSW-NB15, 'rate' is specifically IP packet rate, NOT application request rate. Depends on spkts and dpkts."
+    },
+    "sttl": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source to destination time to live.",
+      "type": "numerical",
+      "unit": "hop count",
+      "measurement_point": "IP header.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "IPv4 TTL header field is stripped by OS TCP stack and not exposed by default in standard Python socket read."
+    },
+    "dttl": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination to source time to live.",
+      "type": "numerical",
+      "unit": "hop count",
+      "measurement_point": "IP header.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Generated by host kernel IP stack on outbound packets; not captured by application layer socket."
+    },
+    "sload": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Source bits per second: (sbytes * 8) / dur.",
+      "type": "numerical",
+      "unit": "bits/sec",
+      "measurement_point": "Flow arithmetic from observable sbytes and dur.",
+      "is_direct": false,
+      "derivation": "Computed as (sbytes * 8) / max(dur, 1e-6)."
+    },
+    "dload": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Destination bits per second: (dbytes * 8) / dur.",
+      "type": "numerical",
+      "unit": "bits/sec",
+      "measurement_point": "Flow arithmetic from observable dbytes and dur.",
+      "is_direct": false,
+      "derivation": "Computed as (dbytes * 8) / max(dur, 1e-6)."
+    },
+    "sloss": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source packets dropped/retransmitted.",
+      "type": "numerical",
+      "unit": "packets",
+      "measurement_point": "Kernel TCP retransmission queue.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "TCP loss recovery and retransmissions are hidden by the reliable transport abstraction."
+    },
+    "dloss": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination packets dropped/retransmitted.",
+      "type": "numerical",
+      "unit": "packets",
+      "measurement_point": "Kernel TCP retransmission queue.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "TCP outbound loss recovery is hidden inside kernel."
+    },
+    "sinpkt": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source inter-packet arrival time in milliseconds.",
+      "type": "numerical",
+      "unit": "milliseconds",
+      "measurement_point": "Network card packet capture timestamp.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Requires per-packet NIC arrival timestamps; socket API coalesces segments into stream buffer."
+    },
+    "dinpkt": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination inter-packet arrival time in milliseconds.",
+      "type": "numerical",
+      "unit": "milliseconds",
+      "measurement_point": "Network card packet capture timestamp.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Requires per-packet departure timestamps; not observable at application stream level."
+    },
+    "sjit": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source jitter in milliseconds.",
+      "type": "numerical",
+      "unit": "milliseconds",
+      "measurement_point": "Statistical analysis of packet inter-arrival times.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Depends on per-packet sinpkt arrival intervals."
+    },
+    "djit": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination jitter in milliseconds.",
+      "type": "numerical",
+      "unit": "milliseconds",
+      "measurement_point": "Statistical analysis of packet inter-departure times.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Depends on per-packet dinpkt departure intervals."
+    },
+    "swin": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source TCP window advertisement value.",
+      "type": "numerical",
+      "unit": "window size",
+      "measurement_point": "TCP segment header.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "16-bit TCP header window advertisement is managed and consumed by OS TCP stack."
+    },
+    "stcpb": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Source TCP base sequence number.",
+      "type": "numerical",
+      "unit": "sequence number",
+      "measurement_point": "TCP segment header.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "32-bit TCP sequence numbers are managed by kernel transport layer."
+    },
+    "dtcpb": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination TCP base sequence number.",
+      "type": "numerical",
+      "unit": "sequence number",
+      "measurement_point": "TCP segment header.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "32-bit TCP sequence numbers are managed by kernel transport layer."
+    },
+    "dwin": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Destination TCP window advertisement value.",
+      "type": "numerical",
+      "unit": "window size",
+      "measurement_point": "TCP segment header.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "TCP window advertisement in outbound segments is managed by OS kernel."
+    },
+    "tcprtt": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "TCP round trip time (SYN to SYN_ACK in seconds).",
+      "type": "numerical",
+      "unit": "seconds",
+      "measurement_point": "Three-way handshake.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Handshake completes in kernel before accept() returns the socket to application."
+    },
+    "synack": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Time between SYN and SYN_ACK.",
+      "type": "numerical",
+      "unit": "seconds",
+      "measurement_point": "Three-way handshake.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Kernel TCP handshake timing is not accessible via standard socket API."
+    },
+    "ackdat": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Time between SYN_ACK and ACK.",
+      "type": "numerical",
+      "unit": "seconds",
+      "measurement_point": "Three-way handshake.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Kernel TCP handshake timing is not accessible via standard socket API."
+    },
+    "smean": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Mean packet size transmitted by source.",
+      "type": "numerical",
+      "unit": "bytes",
+      "measurement_point": "Network layer (sbytes / spkts).",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "In UNSW-NB15, smean is average IP packet size, NOT application request size. Depends on spkts."
+    },
+    "dmean": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Mean packet size transmitted by destination.",
+      "type": "numerical",
+      "unit": "bytes",
+      "measurement_point": "Network layer (dbytes / dpkts).",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Requires dpkts packet count."
+    },
+    "trans_depth": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Pipelined depth of request/response transactions.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Application framing.",
+      "is_direct": false,
+      "derivation": "In our synchronous request-response protocol, trans_depth is 1."
+    },
+    "response_body_len": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Actual payload content size transferred from server response.",
+      "type": "numerical",
+      "unit": "bytes",
+      "measurement_point": "Server send_message handler.",
+      "is_direct": false,
+      "derivation": "Sum of UTF-8 application payload lengths returned by the server."
+    },
+    "ct_srv_src": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Number of connections to same service from source IP in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history by client IP and service."
+    },
+    "ct_state_ttl": {
+      "category": "C_NOT_OBSERVABLE",
+      "definition": "Count of connections having same state and TTL.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Aggregation with TTL.",
+      "is_direct": false,
+      "derivation": null,
+      "reason_unavailable": "Requires TTL which is unobservable at application layer."
+    },
+    "ct_dst_ltm": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Number of connections to destination in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history for server."
+    },
+    "ct_src_dport_ltm": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Connections from source IP to destination port in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history for client IP to server port."
+    },
+    "ct_dst_sport_ltm": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Connections to destination IP from source port in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history for client ephemeral port."
+    },
+    "ct_dst_src_ltm": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Connections between source and destination IP in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history for client IP to server IP."
+    },
+    "is_ftp_login": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "1 if FTP session logged in, 0 otherwise.",
+      "type": "numerical",
+      "unit": "binary_flag",
+      "measurement_point": "Application protocol inspection.",
+      "is_direct": false,
+      "derivation": "Always 0 for non-FTP custom TCP protocol."
+    },
+    "ct_ftp_cmd": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Count of FTP commands in session.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Application protocol inspection.",
+      "is_direct": false,
+      "derivation": "Always 0 for non-FTP custom TCP protocol."
+    },
+    "ct_flw_http_mthd": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Count of HTTP methods (GET/POST) in session.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Application protocol inspection.",
+      "is_direct": false,
+      "derivation": "Count of HTTP-like request commands (0 for standard custom TCP)."
+    },
+    "ct_src_ltm": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Connections from source IP in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history for client IP."
+    },
+    "ct_srv_dst": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "Connections to service from destination in 100 connection window.",
+      "type": "numerical",
+      "unit": "count",
+      "measurement_point": "Server connection tracker.",
+      "is_direct": false,
+      "derivation": "Tracked in rolling 100-connection history for server service."
+    },
+    "is_sm_ips_ports": {
+      "category": "B_LEGITIMATELY_DERIVABLE",
+      "definition": "1 if source and destination IP and ports are equal, 0 otherwise.",
+      "type": "numerical",
+      "unit": "binary_flag",
+      "measurement_point": "Socket address comparison.",
+      "is_direct": false,
+      "derivation": "1 if (client_ip == server_ip and client_port == server_port) else 0."
+    }
+  }
+}

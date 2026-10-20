@@ -1,0 +1,18 @@
+# =============================================================================
+# CN Project — Requirements
+# =============================================================================
+# Phase 1-3: Python standard library only (socket, threading, sys, datetime, csv)
+#
+# Phase 4+: Network feature extraction & CSV generation
+#
+# Phase 5: ML-Based Network Intrusion Classification (XGBoost)
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+joblib>=1.3.0
+#
+# Phase 7: Web Dashboard & Monitoring (planned)
+# fastapi>=0.110
+# uvicorn>=0.29
+# =============================================================================

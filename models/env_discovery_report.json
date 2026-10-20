@@ -1,0 +1,102 @@
+{
+  "phase": "Phase 6.5",
+  "discovery_reason": "Determine whether UNSW-NB15 Category C (packet/kernel-level) feature extraction is technically feasible in this environment.",
+  "platform_info": {
+    "os": "Windows",
+    "os_release": "10",
+    "os_version": "10.0.26200",
+    "machine": "AMD64",
+    "python_version": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+    "python_executable": "C:\\Users\\rajbh\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"
+  },
+  "npcap": {
+    "npcap_dll_found": true,
+    "npcap_dll_paths_checked": [
+      "C:\\Windows\\System32\\Npcap\\wpcap.dll",
+      "C:\\Windows\\System32\\wpcap.dll",
+      "C:\\Windows\\SysWOW64\\wpcap.dll",
+      "C:\\Windows\\SysWOW64\\Npcap\\wpcap.dll"
+    ],
+    "npcap_dll_found_at": [
+      "C:\\Windows\\System32\\Npcap\\wpcap.dll",
+      "C:\\Windows\\System32\\wpcap.dll",
+      "C:\\Windows\\SysWOW64\\wpcap.dll",
+      "C:\\Windows\\SysWOW64\\Npcap\\wpcap.dll"
+    ]
+  },
+  "privileges": {
+    "is_admin": false,
+    "privilege_check_method": "ctypes.windll.shell32.IsUserAnAdmin()",
+    "privilege_check_error": null
+  },
+  "raw_socket": {
+    "raw_socket_available": false,
+    "raw_socket_error": "PermissionError: [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions"
+  },
+  "promiscuous_sniffer": {
+    "promiscuous_sniffer_available": false,
+    "promiscuous_sniffer_error": "PermissionError: [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions"
+  },
+  "capture_libraries": {
+    "scapy_available": true,
+    "pyshark_available": false,
+    "dpkt_available": false,
+    "pypcap_available": false,
+    "pcapy_available": false,
+    "any_capture_library_available": true,
+    "library_check_detail": {
+      "scapy": true,
+      "pyshark": false,
+      "dpkt": false,
+      "pypcap": false,
+      "pcapy": false
+    }
+  },
+  "packet_capture_status": "PARTIAL",
+  "block_reason": "Partial capability present but insufficient for UNSW-NB15 Category C feature extraction: no administrator privileges or raw socket access.",
+  "cat_c_upgrade_path": {
+    "step_1_install_npcap": {
+      "description": "Install the Npcap kernel packet capture driver (Windows). Npcap enables user-space access to the Windows Packet Filter and is required for loopback (127.0.0.1) packet capture.",
+      "download_url": "https://npcap.com/#download",
+      "verify_path": "C:\\Windows\\System32\\Npcap\\wpcap.dll",
+      "required": true,
+      "current_status": "INSTALLED"
+    },
+    "step_2_install_scapy": {
+      "description": "Install the Scapy packet manipulation library. Scapy uses Npcap on Windows to send and receive raw packets.",
+      "install_command": "pip install scapy",
+      "required": true,
+      "current_status": "INSTALLED"
+    },
+    "step_3_run_as_administrator": {
+      "description": "Run the server process with Administrator privileges. On Windows, Npcap-based loopback capture requires elevation.",
+      "required": true,
+      "current_status": "NOT ADMIN"
+    },
+    "cat_c_features_unlocked": [
+      "spkts",
+      "dpkts",
+      "rate",
+      "sttl",
+      "dttl",
+      "sloss",
+      "dloss",
+      "sinpkt",
+      "dinpkt",
+      "sjit",
+      "djit",
+      "swin",
+      "stcpb",
+      "dtcpb",
+      "dwin",
+      "tcprtt",
+      "synack",
+      "ackdat",
+      "smean",
+      "dmean",
+      "ct_state_ttl"
+    ],
+    "cat_c_feature_count": 21,
+    "upgrade_note": "Once all three steps are satisfied, ml/feature_bridge.py can be extended to capture and parse raw Ethernet/IP/TCP frames on the loopback interface, extracting all 21 Category C features with full UNSW-NB15 semantic fidelity. Until then, the system correctly refuses live ML inference per the no-fabrication rule."
+  }
+}
