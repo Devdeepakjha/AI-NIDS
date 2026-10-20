@@ -1,8 +1,9 @@
 // AI-NIDS Live Telemetry & Event Stream Client
-// Phase 7A: Operational & Visual Validation
+// Phase 7A & Cloud Ingestion Support
 
 document.addEventListener("DOMContentLoaded", () => {
   const elements = {
+    systemMode: document.getElementById("systemMode"),
     captureState: document.getElementById("captureState"),
     serverState: document.getElementById("serverState"),
     flowState: document.getElementById("flowState"),
@@ -50,10 +51,23 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateStatusSummary(data) {
     if (!data) return;
 
+    // Deployment mode badge
+    if (elements.systemMode && data.mode) {
+      if (data.mode === "CLOUD_RECEIVER") {
+        elements.systemMode.textContent = "CLOUD RECEIVER (ONLINE)";
+        elements.systemMode.style.color = "#38bdf8";
+        if (elements.serverState) elements.serverState.textContent = "CLOUD RELAY";
+        if (elements.captureState) elements.captureState.textContent = "INGESTING";
+      } else {
+        elements.systemMode.textContent = "LOCAL SNIFFER";
+        elements.systemMode.style.color = "#10b981";
+      }
+    }
+
     // Capture status
     if (data.packet_capture) {
       const isRunning = data.packet_capture.running;
-      elements.captureState.textContent = isRunning ? "ACTIVE" : "IDLE";
+      elements.captureState.textContent = isRunning ? "ACTIVE" : (data.mode === "CLOUD_RECEIVER" ? "LISTENING" : "IDLE");
       elements.captureState.style.color = isRunning ? "#10b981" : "#94a3b8";
       elements.detailIface.textContent = `Interface: ${data.packet_capture.interface || "Loopback"}`;
     }
@@ -98,76 +112,78 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (evt.inference_status === "PREDICTED") {
       const pred = evt.prediction || "BENIGN";
-      const prob = evt.probability !== null ? (evt.probability * 100).toFixed(2) : "0.00";
-      elements.inferenceBadge.className = "panel-status-tag predicted";
-      elements.inferenceBadge.textContent = "GENUINE INFERENCE";
+      elements.inferenceBadge.textContent = pred;
+      elements.inferenceBadge.className = `panel-status-tag ${pred === "BENIGN" ? "valid" : "invalid"}`;
 
-      elements.resultStatus.className = `result-status ${pred.toLowerCase()}`;
-      elements.resultStatus.textContent = `${pred} (${prob}%)`;
+      elements.resultStatus.textContent = `${pred} (${((evt.probability || 0) * 100).toFixed(2)}% probability)`;
+      elements.resultStatus.className = `result-status ${pred === "BENIGN" ? "valid" : "invalid"}`;
       elements.resultExplanation.textContent =
-        `Complete 42-feature UNSW-NB15 vector verified by feature gate. XGBoost evaluated flow with ${prob}% probability of attack.`;
+        `Flow ${evt.flow_id} met strict 42-feature semantic validation. Evaluated genuine Phase-5 XGBoost model.`;
     } else {
+      elements.inferenceBadge.textContent = "REFUSED (HONEST)";
       elements.inferenceBadge.className = "panel-status-tag skipped";
-      elements.inferenceBadge.textContent = "SAFE REFUSAL";
 
+      elements.resultStatus.textContent = "ML Inference Safely Bypassed";
       elements.resultStatus.className = "result-status skipped";
-      elements.resultStatus.textContent = "NO LIVE ML PREDICTION (INVALID_FEATURE_VECTOR)";
-
-      const reasonsStr = (evt.reasons && evt.reasons.length > 0)
-        ? evt.reasons.join("; ")
-        : "Protocol-specific features (trans_depth, response_body_len, ct_flw_http_mthd, is_ftp_login, ct_ftp_cmd) unavailable on custom JSON/TCP traffic.";
+      const reasonStr = (evt.reasons && evt.reasons.length > 0) ? evt.reasons[0] : "Protocol-specific features unavailable";
       elements.resultExplanation.textContent =
-        `Inference skipped per no-fabrication rule: ${reasonsStr}`;
+        `Feature Gate: ${evt.gate_status || "INVALID_FEATURE_VECTOR"}. Reason: ${reasonStr}. Zero-fabrication policy enforced.`;
     }
   }
 
   function appendEventRow(evt) {
-    if (!evt) return;
+    if (!elements.eventsTableBody) return;
 
-    // Remove empty placeholder
+    // Remove empty placeholder row if present
     const emptyRow = elements.eventsTableBody.querySelector(".empty-row");
     if (emptyRow) {
       emptyRow.remove();
     }
 
-    const tr = document.createElement("tr");
+    eventRowsCount++;
+    const row = document.createElement("tr");
 
-    const isGateValid = (evt.gate_status === "VALID_FEATURE_VECTOR");
-    const gateBadge = isGateValid
-      ? `<span class="badge-tag valid">VALID (42/42)</span>`
-      : `<span class="badge-tag invalid">INVALID_FEATURE_VECTOR</span>`;
-
-    let actionBadge = `<span class="badge-tag invalid">SAFE REFUSAL</span>`;
+    let statusBadgeHtml = "";
     if (evt.inference_status === "PREDICTED") {
-      const p = evt.prediction || "BENIGN";
-      actionBadge = `<span class="badge-tag ${p.toLowerCase()}">${p} (${((evt.probability || 0) * 100).toFixed(1)}%)</span>`;
+      const isBenign = evt.prediction === "BENIGN";
+      statusBadgeHtml = `<span class="badge-tag ${isBenign ? "valid" : "invalid"}">${evt.prediction} (${((evt.probability || 0) * 100).toFixed(1)}%)</span>`;
+    } else {
+      statusBadgeHtml = `<span class="badge-tag skipped">GATE REFUSAL</span>`;
     }
 
-    tr.innerHTML = `
+    const gateBadge = (evt.gate_status === "VALID")
+      ? `<span class="badge-tag valid">VALID (42/42)</span>`
+      : `<span class="badge-tag skipped">${evt.gate_status || "PARTIAL"}</span>`;
+
+    const totalPkts = (evt.spkts || 0) + (evt.dpkts || 0);
+
+    row.innerHTML = `
       <td>${formatTime(evt.timestamp)}</td>
-      <td>${evt.flow_id || (evt.src_ip + " -> " + evt.dst_ip)}</td>
-      <td>${(evt.spkts || 0) + (evt.dpkts || 0)} (${evt.spkts || 0}s/${evt.dpkts || 0}d)</td>
+      <td><code>${evt.src_ip}:${evt.src_port} &rarr; ${evt.dst_ip}:${evt.dst_port}</code></td>
+      <td>${totalPkts}</td>
       <td>${(evt.duration || 0).toFixed(3)}s</td>
       <td>${gateBadge}</td>
-      <td>${actionBadge}</td>
+      <td>${statusBadgeHtml}</td>
     `;
 
-    // Insert at the top of the table
-    elements.eventsTableBody.insertBefore(tr, elements.eventsTableBody.firstChild);
-    eventRowsCount++;
+    elements.eventsTableBody.insertBefore(row, elements.eventsTableBody.firstChild);
 
-    // Limit to 50 rows in DOM
-    while (elements.eventsTableBody.children.length > 50) {
+    // Keep table capped at 30 rows
+    while (elements.eventsTableBody.children.length > 30) {
       elements.eventsTableBody.removeChild(elements.eventsTableBody.lastChild);
     }
   }
 
   function connectSSE() {
-    elements.streamLabel.textContent = "Connecting...";
+    if (eventSource) {
+      eventSource.close();
+    }
+
+    elements.streamLabel.textContent = "Connecting to live stream...";
     eventSource = new EventSource("/api/events");
 
     eventSource.onopen = () => {
-      elements.streamLabel.textContent = "Live Stream Active";
+      elements.streamLabel.textContent = "Live SSE Connected";
     };
 
     eventSource.onmessage = (e) => {

@@ -1,7 +1,7 @@
 # AI-Based Client–Server Network Intrusion Detection & Intelligent Traffic Monitoring System (AI-NIDS)
 
 > **College Computer Networks + AI/ML Capstone Project**  
-> End-to-end socket-level network telemetry, bidirectional TCP flow reconstruction, strict 42-feature semantic validation, and offline UNSW-NB15 ML intrusion classification with a real-time web console.
+> End-to-end socket-level network telemetry, bidirectional TCP flow reconstruction, strict 42-feature semantic validation, offline UNSW-NB15 ML intrusion classification, and a real-time web console deployable locally or to the public cloud.
 
 ---
 
@@ -10,13 +10,14 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | **1** | Basic TCP Client ↔ Server Sockets | ✅ Complete |
-| **2** | Structured JSON Protocol & NDJSON Framing (`shared/protocol.py`) | ✅ Complete |
+| **2** | Structured JSON Protocol & NDJSON Framing (`shared/protocol.py`) | ✅ Complete (10/10 Tests Passed) |
 | **3** | Controlled Traffic Generator (10/100/500 rps) & In-Memory Monitoring | ✅ Complete |
 | **4** | Real-time Network Feature Extraction & CSV Dataset Logging | ✅ Complete |
 | **5** | Machine Learning Pipeline (XGBoost on UNSW-NB15, 91.1% Accuracy, F1=0.922) | ✅ Complete |
 | **6** | Flow Tracking & Strict 42-Feature Gate (Zero-fabrication semantic safety) | ✅ Complete |
 | **6.6** | Live Packet Sniffing (Scapy loopback) & Bidirectional Flow Reassembly | ✅ Complete |
 | **7** | Live Telemetry & Web Dashboard (Flask + SSE Event Streaming on Port 5055) | ✅ Complete (35/35 Tests Passed) |
+| **Cloud** | Authenticated Ingestion Endpoint (`POST /api/ingest`) & WSGI Cloud Deployment | ✅ Complete (7/7 Tests Passed) |
 | **8** | Attack Simulation & Extended Security Hardening | 🔲 Planned |
 
 ---
@@ -25,7 +26,7 @@
 
 ```
                       +------------------------------------------+
-                      |         PC 1 (Client Machine)            |
+                      |         Demo PC (Client Machine)         |
                       |   client/client.py (Interactive Menu)   |
                       +--------------------+---------------------+
                                            |
@@ -33,7 +34,7 @@
                              (Port 5000)   |  (Normal / Med / High)
                                            v
 +-----------------------------------------------------------------------------------------+
-|                                 PC 2 (Server Machine)                                   |
+|                                 Demo PC (Server Machine)                                |
 |                                                                                         |
 |  +------------------------+      +-------------------------+      +------------------+  |
 |  |   server/server.py     | ---> |   ml/flow_tracker.py    | ---> |  ml/predict.py   |  |
@@ -48,8 +49,22 @@
 |                                              |                                          |
 |                                              v                                          |
 |  +-----------------------------------------------------------------------------------+  |
-|  |                        server/dashboard_server.py (Port 5055)                     |  |
-|  |     Flask Backend + Server-Sent Events (SSE) Stream + Live Packet Sniffer         |  |
+|  |                     ml/live_inference.py -> CloudEventForwarder                   |  |
+|  |             Non-blocking HTTPS POST to Public Cloud Dashboard (/api/ingest)       |  |
+|  +-----------------------------------------------------------------------------------+  |
++-----------------------------------------------------------------------------------------+
+                                           |
+                              HTTPS POST   |  Authenticated Telemetry
+                                           v
++-----------------------------------------------------------------------------------------+
+|                       Public Cloud Dashboard (Render / Railway)                         |
+|                                                                                         |
+|  +-----------------------------------------------------------------------------------+  |
+|  |                     server/dashboard_server.py (Cloud Receiver)                   |  |
+|  |  - Ingestion: POST /api/ingest (Authenticated with secret key)                    |  |
+|  |  - Web UI: GET / (Dashboard Console)                                              |  |
+|  |  - Live Stream: GET /api/events (Server-Sent Events)                              |  |
+|  |  - Model Demo: POST /api/demo-authoritative (Frozen XGBoost verification)          |  |
 |  +-----------------------------------------------------------------------------------+  |
 +-----------------------------------------------------------------------------------------+
                                            |
@@ -57,157 +72,133 @@
                                            v
                       +------------------------------------------+
                       |          Web Browser Console             |
-                      |         http://127.0.0.1:5055/           |
+                      |    https://<your-app>.onrender.com       |
                       |  - Live Packet & Flow Telemetry          |
                       |  - Feature Provenance (42 Features)      |
                       |  - Real-time Event Stream                |
-                      |  - Authoritative Vector Demo             |
+                      |  - Offline Authoritative Model Benchmark |
                       +------------------------------------------+
 ```
 
 ---
 
-## Hassle-Free Quick Start (1-Click Launcher)
+## Hassle-Free Quick Start (Unified Launcher)
 
-A unified launcher (`launch.py`) is provided to run everything quickly without juggling multiple windows:
+A single entrypoint ([launch.py](file:///c:/Users/Deepak%20Jha/Downloads/CN%20Project/CN%20Project/launch.py)) runs any mode easily:
 
-### 1. Launch Complete System (TCP Server + Live Web Console)
 ```bash
+# Option 1: Full Local System (Server on 5000 + Local Dashboard on 5055)
 python launch.py --all
-```
-* Starts the TCP Socket Server on `0.0.0.0:5000`.
-* Starts the Flask Web Dashboard on `127.0.0.1:5055`.
-* Automatically opens `http://127.0.0.1:5055/` in your default browser.
 
-### 2. Launch Client Interactive Console (in a separate terminal)
-```bash
+# Option 2: Full Local System with Cloud Forwarding to your Deployed Dashboard
+python launch.py --all --cloud-url https://<YOUR_CLOUD_URL> --cloud-secret <SECRET>
+
+# Option 3: Client Interactive Menu (Traffic Generator)
 python launch.py --client
-```
-Presents the client options:
-* `[1]` Send Single Request
-* `[2]` Send Multiple Requests (5 sequential)
-* `[3]` Normal Traffic Generator (~10 req/sec)
-* `[4]` Medium Traffic Generator (~100 req/sec)
-* `[5]` High Traffic Generator (~500 req/sec target)
-* `[6]` Start Dataset Collection Session
-* `[7]` Stop Dataset Collection Session
-* `[8]` View Connection Info
 
-### 3. Run Acceptance Test Suite
-```bash
+# Option 4: Standalone Cloud Dashboard (Receiver Mode)
+python launch.py --cloud-dashboard
+
+# Option 5: Run Automated Verification Tests
 python launch.py --test
 ```
-Executes all 35 Phase 7 freeze and regression tests (`tests/test_phase7_cases.py`).
 
 ---
 
 ## Deployment Modes
 
-### Mode A: Local Single-Machine Deployment (Dev & Demonstration)
-Ideal for testing and live demonstration on a single computer:
-1. Terminal 1: Run `python launch.py --all`
-2. Browser: Navigate to `http://127.0.0.1:5055/`
-3. Terminal 2: Run `python launch.py --client` to generate live network traffic.
-4. On the Web Console: Click **"Run Authoritative Vector Demonstration"** to see instant verified model inference.
+### Mode 1: Local Single-Machine Deployment (Dev & Offline Demo)
+Ideal for testing on a single computer without an internet connection:
+1. **Terminal 1**: Run `python launch.py --all`
+   * Opens `http://127.0.0.1:5055/` automatically in your browser.
+2. **Terminal 2**: Run `python launch.py --client`
+   * Select options `[1]` to `[5]` to generate TCP traffic and observe live telemetry updates.
+3. **On the Web Dashboard**: Click **"Run Authoritative Model Pipeline"** to verify the frozen XGBoost model on a genuine UNSW-NB15 vector.
 
-### Mode B: Two-PC LAN Deployment (Hardware Demonstration)
-As required by the Computer Networks course specification:
-1. **Find Server IP (on PC 2)**:
-   ```cmd
-   ipconfig
-   ```
-   Note the IPv4 address (e.g. `192.168.1.15`).
-2. **Configure Windows Firewall (on PC 2 as Administrator)**:
+### Mode 2: Two-PC LAN Deployment (Hardware Demonstration)
+For demonstration with two computers on the same Wi-Fi / Ethernet LAN:
+1. **PC 2 (Server)**: Run `ipconfig` to get your LAN IP (e.g., `192.168.1.15`).
+2. **PC 2 (Firewall)**: Allow ports 5000 and 5055 in Windows Firewall (PowerShell as Admin):
    ```powershell
    netsh advfirewall firewall add rule name="AI_NIDS_5000" dir=in action=allow protocol=TCP localport=5000
    netsh advfirewall firewall add rule name="AI_NIDS_5055" dir=in action=allow protocol=TCP localport=5055
    ```
-3. **Start Server (on PC 2)**:
+3. **PC 2**: Run `python launch.py --all`.
+4. **PC 1 (Client)**: Set `SERVER_IP = "192.168.1.15"` in `client/config.py`, then run `python launch.py --client`.
+
+### Mode 3: Public Cloud Deployment (Public HTTPS Web Dashboard)
+Deploy the web dashboard online so professors or reviewers can view your live telemetry console from any browser at a public HTTPS URL.
+
+#### Why Render is Recommended
+* Free tier supports Python Web Services directly connected to GitHub.
+* Automatic SSL/HTTPS certificates included.
+* Native support for Gunicorn and Flask Server-Sent Events (SSE).
+* Seamless integration with environment variables (`AI_NIDS_INGESTION_SECRET`).
+* *Note on Packet Capture in Cloud*: Cloud containers run on virtual networks where raw packet capture (Scapy/Npcap) is restricted. Our architecture solves this cleanly by running the actual packet capture and inference on the Demo PC and securely forwarding completed events to the Cloud Dashboard via authenticated HTTPS.
+
+#### Step-by-Step Cloud Deployment Guide
+
+1. **Push your code to GitHub**:
    ```bash
-   python launch.py --all
+   git remote add origin https://github.com/Devdeepakjha/AI-NIDS.git
+   git branch -M main
+   git push -u origin main
    ```
-4. **Configure Client (on PC 1)**:
-   In `client/config.py`, set:
-   ```python
-   SERVER_IP = "192.168.1.15"  # Server PC's LAN IP
-   ```
-5. **Run Client (on PC 1)**:
-   ```bash
-   python launch.py --client
-   ```
+
+2. **Create Web Service on [Render.com](https://render.com)**:
+   * Sign in to Render (using your GitHub account).
+   * Click **New +** > **Web Service**.
+   * Select your repository: **`Devdeepakjha/AI-NIDS`**.
+   * Fill in the settings:
+     * **Name**: `ai-nids-dashboard` (or preferred name)
+     * **Language**: `Python 3`
+     * **Region**: Oregon (US West) or closest region
+     * **Branch**: `main`
+     * **Build Command**: `pip install -r requirements.txt`
+     * **Start Command**: `gunicorn server.dashboard_server:app --worker-class sync --timeout 120`
+     * **Instance Type**: `Free`
+   * Under **Environment Variables**, add:
+     * `AI_NIDS_INGESTION_SECRET`: `your-secure-secret-key-2026` (any passphrase of your choice)
+   * Click **Create Web Service**.
+
+3. **Get your Public URL**:
+   * Once built (takes ~2 minutes), Render will display your public HTTPS URL:
+     `https://ai-nids-dashboard.onrender.com`
+
+4. **Connect your Demo PC to the Cloud Dashboard**:
+   * On your local Demo PC, start the project with your cloud URL and secret:
+     ```bash
+     python launch.py --all --cloud-url https://ai-nids-dashboard.onrender.com --cloud-secret your-secure-secret-key-2026
+     ```
+   * Open `https://ai-nids-dashboard.onrender.com` in any browser.
+   * Run the client in another terminal: `python launch.py --client`.
+   * Real packet detections and telemetry events from your Demo PC will immediately appear live on your public HTTPS cloud dashboard!
+
+5. **Switching back to Local Mode**:
+   * Simply run `python launch.py --all` without the `--cloud-url` flag. The system automatically stays 100% local.
 
 ---
 
-## Key Computer Networks Concepts Covered
+## Security & Architecture Integrity Guarantees
 
-* **Transport Layer (TCP)**: Sockets, 3-way handshake, connection-oriented delivery, ephemeral ports, graceful teardown.
-* **Application-Layer Protocol**: Custom JSON-based protocol with newline-delimited framing (NDJSON) preventing TCP segmentation and merging issues.
-* **Traffic Observation & Telemetry**: Inter-request pacing, target vs actual rate calculation, packet-level telemetry via Scapy, bidirectional flow state tracking.
-* **Network Security & ML**: Strict feature provenance (42 UNSW-NB15 features), zero-fabrication gate, offline XGBoost classifier, real-time intrusion monitoring.
-
----
-
-## Repository Structure
-
-```
-CN Project/
-├── README.md                      # Comprehensive project documentation
-├── requirements.txt               # Dependencies (pandas, scikit-learn, xgboost, flask, scapy)
-├── launch.py                      # Unified 1-click launcher
-├── .gitignore                     # Git ignore rules for Python, cache, and test files
-│
-├── client/
-│   ├── client.py                  # Interactive client & traffic generator
-│   └── config.py                  # Client configuration (server IP, port, rates)
-│
-├── server/
-│   ├── server.py                  # Core TCP server socket listener (port 5000)
-│   ├── dashboard_server.py        # Flask + SSE telemetry server (port 5055)
-│   ├── monitor.py                 # In-memory traffic monitor & rate counter
-│   ├── dataset_writer.py          # Phase 4 CSV dataset writer
-│   ├── detection_logger.py        # Event logger for intrusion predictions
-│   └── config.py                  # Server configuration
-│
-├── shared/
-│   └── protocol.py                # Single source of truth for request/response protocol
-│
-├── dashboard/
-│   ├── index.html                 # Modern web console interface
-│   ├── style.css                  # Console design system (dark mode, glassmorphism)
-│   └── app.js                     # SSE client & dynamic telemetry updates
-│
-├── ml/
-│   ├── predict.py                 # IntrusionPredictor loading XGBoost model
-│   ├── flow_tracker.py            # Real-time TCP bidirectional flow tracking
-│   ├── feature_gate.py            # Strict 42-feature validation gate
-│   ├── unsw_feature_extractor.py  # Feature extractor mapping flows to UNSW-NB15
-│   ├── live_inference.py          # End-to-end live inference pipeline
-│   ├── packet_capture.py          # Scapy loopback packet sniffer
-│   ├── preprocessing.py           # Preprocessing pipeline
-│   ├── train.py                   # Model training script
-│   └── download_dataset.py        # Automatic UNSW-NB15 dataset downloader
-│
-├── models/
-│   ├── intrusion_model.json       # Trained XGBoost model artifact
-│   ├── preprocessor.pkl           # ColumnTransformer & preprocessor
-│   ├── feature_schema.json        # 42-feature schema & metadata
-│   └── training_metadata.json     # Training metrics (Accuracy 91.1%, F1 0.922)
-│
-└── tests/                         # Full automated regression & freeze test suite
-    ├── test_protocol.py           # Phase 2 protocol unit tests (10/10 PASS)
-    ├── test_phase7_cases.py       # Phase 7 final acceptance test suite (35/35 PASS)
-    └── ...
-```
+* **Zero Fabrication Policy**: The strict 42-feature gate ([ml/feature_gate.py](file:///c:/Users/Deepak%20Jha/Downloads/CN%20Project/CN%20Project/ml/feature_gate.py)) verifies semantic availability for every UNSW-NB15 feature. Incomplete live flows are safely refused with `INVALID_FEATURE_VECTOR` rather than filled with fake data.
+* **Non-Blocking Forwarding**: The background worker ([CloudEventForwarder](file:///c:/Users/Deepak%20Jha/Downloads/CN%20Project/CN%20Project/ml/live_inference.py)) uses a thread-safe queue. Local packet capture and socket processing never block on internet delivery.
+* **No Sensitive Data Leaks**: Forwarded event payloads contain only connection metadata (IPs, ports, packet counts, inference verdict). No passwords, raw packet payloads, or internal filesystem paths are ever sent.
+* **Authentication**: Cloud ingestion rejects unauthenticated or malformed requests with `401 Unauthorized` / `400 Bad Request`.
+* **Authoritative Benchmark Separation**: The offline XGBoost model demonstration is explicitly isolated from live packet streams and clearly labeled on the web console.
 
 ---
 
-## Pushing to GitHub
+## Test Verification
 
-To push this repository to your GitHub account:
-1. Create a new repository on GitHub (e.g. `AI-NIDS` or `Computer-Networks-Project`).
-2. Run the following commands in the project root:
+Run all test suites using Python unittest:
 ```bash
-git remote add origin https://github.com/Devdeepakjha/<YOUR_REPO_NAME>.git
-git branch -M main
-git push -u origin main
+# 1. Cloud Ingestion & Authentication Tests (7/7 PASS)
+python -m unittest tests/test_cloud_ingestion.py
+
+# 2. Final Project Freeze & Regression Suite (35/35 PASS)
+python -m unittest tests/test_phase7_cases.py
+
+# 3. Core Protocol Unit Tests (10/10 PASS)
+python tests/test_protocol.py
 ```

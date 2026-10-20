@@ -1,35 +1,183 @@
 """
 server/dashboard_server.py
 =============================================================================
-Phase 6.6: Flask Backend & Server-Sent Events (SSE) Stream for Live Dashboard.
+Phase 6.6 & Cloud Telemetry: Flask Backend & Server-Sent Events (SSE) Stream
+for Live AI-NIDS Dashboard.
 
-Provides:
-  - GET /            : Serves dashboard/index.html
-  - GET /api/status  : Returns current system & telemetry status JSON
-  - GET /api/events  : Server-Sent Events (SSE) stream for live packet/flow updates
+Dual-Mode Operation:
+  1. Local Sniffer Mode: Runs on Demo PC directly reading Scapy/Npcap packets.
+  2. Cloud Receiver Mode: Runs on public cloud hosting (Render/Railway/etc.),
+     ingests authenticated telemetry events via POST /api/ingest from the Demo PC,
+     and streams them in real-time to the public web console via SSE.
 
-Designed for clean startup and shutdown via werkzeug make_server.
-Zero orphan threads, zero background leaks.
+Features:
+  - GET  /                     : Serves dashboard/index.html
+  - GET  /<path:filename>      : Serves dashboard static assets
+  - GET  /api/status           : Returns system, telemetry & ingestion status JSON
+  - GET  /api/events           : Server-Sent Events (SSE) live telemetry stream
+  - POST /api/ingest           : Authenticated event ingestion endpoint for Demo PC
+  - POST, GET /api/demo-authoritative : Authoritative model verification pipeline
+
+Compatible with WSGI runners (Gunicorn) via module-level `app`.
 =============================================================================
 """
 
 import os
+import sys
 import json
 import time
 import queue
 import threading
-from typing import Optional, Generator
-from flask import Flask, Response, jsonify, send_from_directory
+from collections import deque
+from typing import Optional, Generator, Dict, Any
+from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.serving import make_server
 
-from ml.live_inference import LiveInferencePipeline
-
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 DASHBOARD_DIR = os.path.join(PROJECT_ROOT, "dashboard")
 
+from ml.feature_gate import FeatureGate
+from ml.predict import IntrusionPredictor
 
-def create_dashboard_app(pipeline: LiveInferencePipeline) -> Flask:
+
+class CloudTelemetryPipeline:
+    """
+    Lightweight telemetry and event coordinator for Cloud Dashboard deployments.
+    Does NOT require Scapy, Npcap, raw network sockets, or root privileges.
+    Receives authenticated events from the Demo PC and coordinates SSE streaming.
+    """
+
+    def __init__(self):
+        self.flow_tracker = type("DummyFlowTracker", (), {"active_flows_count": 0, "total_flows_count": 0})()
+        self.feature_gate = FeatureGate()
+        self.predictor = IntrusionPredictor()
+        self._lock = threading.Lock()
+        self._subscribers = []
+        self._recent_events = []
+        self._seen_sigs = deque(maxlen=1000)
+        self.ingested_count = 0
+        self.last_ingest_time = None
+
+        self.stats = {
+            "packets_captured": 0,
+            "flows_reconstructed": 0,
+            "vectors_evaluated": 0,
+            "vectors_valid": 0,
+            "vectors_rejected": 0,
+            "predictions_made": 0,
+            "benign_count": 0,
+            "intrusion_count": 0,
+            "last_prediction": None,
+            "last_skip_reason": None,
+        }
+
+    def subscribe(self) -> queue.Queue:
+        q = queue.Queue(maxsize=100)
+        with self._lock:
+            self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue) -> None:
+        with self._lock:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+    def _publish_event(self, event: Dict[str, Any]) -> None:
+        dead = []
+        with self._lock:
+            self._recent_events.append(event)
+            if len(self._recent_events) > 100:
+                self._recent_events = self._recent_events[-100:]
+            subscribers_copy = list(self._subscribers)
+
+        for q in subscribers_copy:
+            try:
+                q.put_nowait(event)
+            except queue.Full:
+                dead.append(q)
+
+        if dead:
+            with self._lock:
+                for q in dead:
+                    if q in self._subscribers:
+                        self._subscribers.remove(q)
+
+    def ingest_event(self, event: Dict[str, Any]) -> tuple:
+        """
+        Deduplicate, update telemetry metrics, and publish ingested event.
+        Returns (success: bool, message: str).
+        """
+        flow_id = event.get("flow_id", f"{event.get('src_ip')}:{event.get('src_port')} -> {event.get('dst_ip')}:{event.get('dst_port')}")
+        sig = (flow_id, event.get("timestamp"), event.get("spkts"), event.get("dpkts"))
+
+        with self._lock:
+            if sig in self._seen_sigs:
+                return False, "Duplicate event skipped"
+            self._seen_sigs.append(sig)
+
+            self.ingested_count += 1
+            self.last_ingest_time = time.time()
+
+            spkts = int(event.get("spkts", 0))
+            dpkts = int(event.get("dpkts", 0))
+            self.stats["packets_captured"] += (spkts + dpkts)
+            self.stats["flows_reconstructed"] += 1
+            self.stats["vectors_evaluated"] += 1
+
+            status = event.get("inference_status", "SKIPPED")
+            if status == "PREDICTED":
+                self.stats["vectors_valid"] += 1
+                self.stats["predictions_made"] += 1
+                pred = event.get("prediction", "BENIGN")
+                if pred == "INTRUSION":
+                    self.stats["intrusion_count"] += 1
+                else:
+                    self.stats["benign_count"] += 1
+                self.stats["last_prediction"] = event
+            else:
+                self.stats["vectors_rejected"] += 1
+                reasons = event.get("reasons", ["Incomplete features"])
+                self.stats["last_skip_reason"] = reasons[0] if reasons else "Incomplete features"
+
+        # Broadcast live to SSE subscribers
+        self._publish_event(event)
+        return True, "Event ingested successfully"
+
+    def get_status_summary(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "mode": "CLOUD_RECEIVER",
+                "cloud_receiver": {
+                    "active": True,
+                    "ingested_count": self.ingested_count,
+                    "last_ingest_time": self.last_ingest_time,
+                },
+                "packet_capture": {
+                    "running": self.ingested_count > 0,
+                    "interface": "Remote Forwarder (Demo PC)",
+                    "filter": "Live Ingested Telemetry",
+                },
+                "telemetry": {
+                    "active_flows": self.stats["flows_reconstructed"],
+                    "total_flows": self.stats["flows_reconstructed"],
+                    **self.stats
+                },
+                "recent_events": list(self._recent_events[-20:]),
+                "domain_shift_disclaimer": (
+                    "Phase 5 XGBoost model was trained on the offline UNSW-NB15 dataset. "
+                    "Live detection events forwarded from the demo PC are authenticated and displayed in real time."
+                )
+            }
+
+
+def create_dashboard_app(pipeline: Optional[Any] = None) -> Flask:
     """Create and configure the Flask dashboard application."""
+    if pipeline is None:
+        pipeline = CloudTelemetryPipeline()
+
     app = Flask(__name__, static_folder=DASHBOARD_DIR, static_url_path="")
     app.config["JSON_SORT_KEYS"] = False
 
@@ -62,7 +210,12 @@ def create_dashboard_app(pipeline: LiveInferencePipeline) -> Flask:
                         yield f"data: {data_str}\n\n"
                     except queue.Empty:
                         # Send periodic heartbeat to keep SSE connection alive
-                        heartbeat = json.dumps({"type": "heartbeat", "time": time.time(), "active_flows": pipeline.flow_tracker.active_flows_count})
+                        active_flows = getattr(pipeline.flow_tracker, "active_flows_count", 0)
+                        heartbeat = json.dumps({
+                            "type": "heartbeat",
+                            "time": time.time(),
+                            "active_flows": active_flows
+                        })
                         yield f"data: {heartbeat}\n\n"
             finally:
                 pipeline.unsubscribe(client_queue)
@@ -77,12 +230,66 @@ def create_dashboard_app(pipeline: LiveInferencePipeline) -> Flask:
             }
         )
 
+    @app.route("/api/ingest", methods=["POST"])
+    def api_ingest():
+        """
+        Secure ingestion endpoint for receiving detection events forwarded
+        from the local Demo PC.
+        """
+        # 1. Authenticate if AI_NIDS_INGESTION_SECRET is configured
+        expected_secret = os.environ.get("AI_NIDS_INGESTION_SECRET")
+        if expected_secret:
+            auth_hdr = request.headers.get("Authorization", "")
+            sec_hdr = request.headers.get("X-AI-NIDS-Secret", "")
+            bearer_token = auth_hdr.replace("Bearer ", "").strip() if auth_hdr.startswith("Bearer ") else auth_hdr.strip()
+            provided_secret = sec_hdr or bearer_token
+
+            if provided_secret != expected_secret:
+                return jsonify({
+                    "status": "UNAUTHORIZED",
+                    "error": "Missing or invalid ingestion secret."
+                }), 401
+
+        # 2. Check JSON content
+        if not request.is_json:
+            return jsonify({
+                "status": "BAD_REQUEST",
+                "error": "Request body must be JSON (application/json)"
+            }), 400
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({
+                "status": "BAD_REQUEST",
+                "error": "JSON body must be an object"
+            }), 400
+
+        # 3. Validate required telemetry fields
+        required_fields = ["timestamp", "src_ip", "dst_ip", "src_port", "dst_port", "protocol", "inference_status"]
+        missing = [f for f in required_fields if f not in data]
+        if missing:
+            return jsonify({
+                "status": "BAD_REQUEST",
+                "error": f"Missing required telemetry fields: {', '.join(missing)}"
+            }), 400
+
+        # 4. Ingest into pipeline
+        success, msg = pipeline.ingest_event(data)
+        if not success:
+            return jsonify({"status": "IGNORED", "message": msg}), 200
+
+        return jsonify({
+            "status": "SUCCESS",
+            "message": "Detection event successfully ingested and broadcasted.",
+            "timestamp": data.get("timestamp")
+        }), 200
+
     @app.route("/api/demo-authoritative", methods=["POST", "GET"])
     def api_demo_authoritative():
         """
-        Run a controlled demonstration of the frozen Phase-5 ML pipeline
-        using an offline, complete authoritative 42-feature test vector.
-        This verifies model inference without fabricating live network features.
+        Controlled demonstration of the frozen Phase-5 ML pipeline using an offline,
+        complete authoritative 42-feature test vector.
+        Explicitly labeled as an offline model verification demo rather than live packet detection.
         """
         sample_vector = {
             "dur": 0.001, "proto": "tcp", "service": "-", "state": "FIN",
@@ -102,15 +309,22 @@ def create_dashboard_app(pipeline: LiveInferencePipeline) -> Flask:
         pred = pipeline.predictor.predict(sample_vector)
         return jsonify({
             "status": "SUCCESS",
-            "demo_type": "DEMO B (CONTROLLED AUTHORITATIVE VECTOR)",
+            "demo_type": "OFFLINE_AUTHORITATIVE_MODEL_DEMO",
             "gate_status": gate_status,
             "prediction": pred["prediction"],
             "intrusion_probability": pred["intrusion_probability"],
             "features_evaluated": len(sample_vector),
-            "note": "Verified frozen Phase 5 XGBoost model using an authoritative complete vector."
+            "note": (
+                "Verified frozen Phase 5 XGBoost model using an authoritative complete UNSW-NB15 vector. "
+                "This is an offline model benchmark demonstration, not a live packet detection."
+            )
         })
 
     return app
+
+
+# Default WSGI application entrypoint for Gunicorn or cloud application servers
+app = create_dashboard_app()
 
 
 class DashboardServer:
@@ -119,11 +333,12 @@ class DashboardServer:
     Supports clean shutdown via server.shutdown().
     """
 
-    def __init__(self, pipeline: LiveInferencePipeline, host: str = "127.0.0.1", port: int = 5055):
-        self.pipeline = pipeline
+    def __init__(self, pipeline: Optional[Any] = None, host: str = "0.0.0.0", port: Optional[int] = None):
+        self.pipeline = pipeline or CloudTelemetryPipeline()
         self.host = host
-        self.port = port
-        self.app = create_dashboard_app(pipeline)
+        env_port = os.environ.get("PORT")
+        self.port = int(env_port) if env_port else (port or 5055)
+        self.app = create_dashboard_app(self.pipeline)
         self._server = None
         self._thread: Optional[threading.Thread] = None
         self._is_running = False
@@ -171,17 +386,27 @@ if __name__ == "__main__":
     print("=" * 60)
     print("AI-NIDS LIVE TELEMETRY & INTRUSION DETECTION CONSOLE")
     print("=" * 60)
-    pipe = LiveInferencePipeline(bpf_filter="tcp port 5000")
-    cap_ok = pipe.start()
-    if cap_ok:
-        print(f"[PIPELINE] Packet capture active on interface '{pipe.packet_capture.interface}'")
-    else:
-        print("[PIPELINE] Packet capture could not start automatically.")
 
-    srv = DashboardServer(pipe, host="127.0.0.1", port=5055)
+    # In standalone local mode, try to initialize packet capture
+    try:
+        from ml.live_inference import LiveInferencePipeline
+        pipe = LiveInferencePipeline(bpf_filter="tcp port 5000")
+        cap_ok = pipe.start()
+        if cap_ok:
+            print(f"[PIPELINE] Packet capture active on interface '{pipe.packet_capture.interface}'")
+        else:
+            print("[PIPELINE] Packet capture could not start automatically (running in telemetry receiver mode).")
+    except Exception as exc:
+        print(f"[PIPELINE] Running in cloud telemetry receiver mode: {exc}")
+        pipe = CloudTelemetryPipeline()
+
+    run_host = os.environ.get("HOST", "0.0.0.0")
+    run_port = int(os.environ.get("PORT", 5055))
+
+    srv = DashboardServer(pipe, host=run_host, port=run_port)
     srv_ok = srv.start()
     if srv_ok:
-        print("[DASHBOARD] Serving on http://127.0.0.1:5055/")
+        print(f"[DASHBOARD] Serving on http://{run_host}:{run_port}/")
         print("[DASHBOARD] Press Ctrl+C to shut down.")
         try:
             while srv.is_running:
@@ -190,5 +415,6 @@ if __name__ == "__main__":
             print("\n[DASHBOARD] Stopping dashboard server...")
         finally:
             srv.stop()
-            pipe.stop()
+            if hasattr(pipe, "stop"):
+                pipe.stop()
             print("[DASHBOARD] Shutdown complete.")
