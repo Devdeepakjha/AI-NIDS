@@ -27,6 +27,7 @@ import sys
 import json
 import time
 import queue
+import socket
 import threading
 from collections import deque
 from typing import Optional, Generator, Dict, Any
@@ -173,6 +174,16 @@ class CloudTelemetryPipeline:
             }
 
 
+def check_tcp_server_listening(host: str = "127.0.0.1", port: int = 5000) -> bool:
+    """Safe check if the local TCP server is listening on port 5000."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.3)
+            return s.connect_ex((host, port)) == 0
+    except Exception:
+        return False
+
+
 def create_dashboard_app(pipeline: Optional[Any] = None) -> Flask:
     """Create and configure the Flask dashboard application."""
     if pipeline is None:
@@ -192,6 +203,11 @@ def create_dashboard_app(pipeline: Optional[Any] = None) -> Flask:
     @app.route("/api/status")
     def api_status():
         status = pipeline.get_status_summary()
+        status["tcp_server"] = {
+            "host": "127.0.0.1",
+            "port": 5000,
+            "listening": check_tcp_server_listening("127.0.0.1", 5000)
+        }
         return jsonify(status)
 
     @app.route("/api/events")

@@ -47,6 +47,8 @@ import socket
 import sys
 import os
 import time
+import threading
+from typing import Optional
 from datetime import datetime
 
 # Ensure both server/ and project root are in sys.path
@@ -294,9 +296,10 @@ def handle_client(conn: socket.socket, addr: tuple) -> None:
 # ---------------------------------------------------------------------------
 # start_server -- main entry point
 # ---------------------------------------------------------------------------
-def start_server() -> None:
+def start_server(stop_event: Optional[threading.Event] = None) -> None:
     """
     Create the server socket, bind, listen, start monitor, accept clients.
+    Accepts an optional stop_event for clean shutdown when running in launcher threads.
     """
 
     print()
@@ -323,6 +326,7 @@ def start_server() -> None:
     log("SERVER", "Client [6] = Start Collection   [7] = Stop Collection")
 
     server_socket.listen(config.BACKLOG)
+    server_socket.settimeout(1.0)  # Allow checking stop_event periodically
 
     log("SERVER", f"Listening ... (backlog = {config.BACKLOG})")
     log("SERVER", "Press Ctrl+C to stop.")
@@ -332,8 +336,11 @@ def start_server() -> None:
     monitor.start()
 
     try:
-        while True:
-            conn, addr = server_socket.accept()
+        while stop_event is None or not stop_event.is_set():
+            try:
+                conn, addr = server_socket.accept()
+            except socket.timeout:
+                continue
             handle_client(conn, addr)
 
     except KeyboardInterrupt:

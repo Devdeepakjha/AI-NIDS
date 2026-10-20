@@ -65,24 +65,52 @@ def run_full_system(cloud_url: str = None, cloud_secret: str = None):
         pipe.stop()
         return
 
-    # Automatically open browser
+    # 2. Start TCP Server in dedicated thread with lifecycle management
+    from server.server import start_server
+
+    server_stop_event = threading.Event()
+    server_thread = threading.Thread(
+        target=start_server,
+        kwargs={"stop_event": server_stop_event},
+        name="TCPServerThread",
+        daemon=True
+    )
+    server_thread.start()
+
+    # 3. Safe health check: confirm TCP socket is bound and accepting connections
+    print("[HEALTH] Verifying TCP socket binding on 127.0.0.1:5000...")
+    server_ready = False
+    for attempt in range(1, 11):
+        if is_port_in_use(5000, "127.0.0.1"):
+            server_ready = True
+            break
+        time.sleep(0.3)
+
+    if server_ready:
+        print("[HEALTH] TCP Server confirmed ONLINE and accepting connections on 0.0.0.0:5000.")
+    else:
+        print("[WARNING] TCP Server socket did not respond on port 5000 within startup window.")
+
+    # Automatically open browser once services are confirmed active
     try:
         webbrowser.open("http://127.0.0.1:5055/")
     except Exception:
         pass
 
-    # 2. Start TCP Server
-    from server.server import start_server
-
     try:
-        print("\n[SYSTEM READY] Press Ctrl+C anytime to stop all services cleanly.\n")
-        start_server()
+        print("\n[SYSTEM READY] Both TCP Server (5000) and Web Dashboard (5055) are active.")
+        print("Press Ctrl+C anytime to stop all services cleanly.\n")
+        while server_thread.is_alive() and dash_server.is_running:
+            time.sleep(0.5)
     except KeyboardInterrupt:
         print("\n[SYSTEM] Received shutdown signal.")
     finally:
-        print("[SYSTEM] Shutting down Dashboard server...")
+        print("[SYSTEM] Shutting down services...")
+        server_stop_event.set()
         dash_server.stop()
         pipe.stop()
+        if server_thread.is_alive():
+            server_thread.join(timeout=2.0)
         print("[SYSTEM] All services stopped cleanly. Goodbye.")
 
 
@@ -113,7 +141,31 @@ def run_cloud_dashboard():
 
 
 def run_client():
-    """Run the client interactive console."""
+    """Run the client interactive console with safe startup health check."""
+    from client.config import SERVER_IP, SERVER_PORT
+
+    print("=" * 70)
+    print("AI-NIDS: CLIENT TRAFFIC GENERATOR")
+    print(f"Target Server: {SERVER_IP}:{SERVER_PORT}")
+    print("=" * 70)
+
+    # Safe startup health check: confirm TCP socket is accepting connections
+    print(f"[HEALTH] Checking TCP socket connectivity to {SERVER_IP}:{SERVER_PORT}...")
+    ready = False
+    for attempt in range(1, 4):
+        if is_port_in_use(SERVER_PORT, SERVER_IP):
+            ready = True
+            break
+        print(f"  Attempt {attempt}/3: Waiting for server to accept connections...")
+        time.sleep(0.5)
+
+    if ready:
+        print(f"[HEALTH] Verified! TCP Server is ONLINE and accepting connections on {SERVER_IP}:{SERVER_PORT}.\n")
+    else:
+        print(f"\n[WARNING] TCP Server on {SERVER_IP}:{SERVER_PORT} is not responding.")
+        print(f"  -> Please ensure the server is started in Terminal 1 with: python launch.py --all")
+        print(f"  -> Continuing to menu; connections will be attempted upon command selection.\n")
+
     from client.client import run_menu
     run_menu()
 

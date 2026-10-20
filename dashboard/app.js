@@ -61,6 +61,20 @@ document.addEventListener("DOMContentLoaded", () => {
       } else {
         elements.systemMode.textContent = "LOCAL SNIFFER";
         elements.systemMode.style.color = "#10b981";
+
+        // Dynamic local TCP server socket status
+        if (data.tcp_server && elements.serverState) {
+          const isListening = Boolean(data.tcp_server.listening);
+          elements.serverState.textContent = isListening ? "LISTENING" : "OFFLINE";
+          elements.serverState.style.color = isListening ? "#10b981" : "#ef4444";
+          const badge = document.getElementById("badgeServer");
+          if (badge) {
+            const dot = badge.querySelector(".dot");
+            if (dot) {
+              dot.className = isListening ? "dot active" : "dot danger";
+            }
+          }
+        }
       }
     }
 

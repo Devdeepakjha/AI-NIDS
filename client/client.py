@@ -86,6 +86,18 @@ def log(tag: str, message: str) -> None:
     print(f"[{now}] [{tag}] {safe_msg}")
 
 
+def check_server_health(host: str = None, port: int = None, timeout: float = 1.0) -> bool:
+    """Check if the TCP server socket is bound and accepting connections."""
+    h = host or config.SERVER_IP
+    p = port or config.SERVER_PORT
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            return s.connect_ex((h, p)) == 0
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # connect_to_server -- create a connected socket
 # ---------------------------------------------------------------------------
@@ -103,9 +115,9 @@ def connect_to_server() -> socket.socket:
     try:
         sock.connect((config.SERVER_IP, config.SERVER_PORT))
     except ConnectionRefusedError:
-        log("CLIENT", "[ERROR] Connection REFUSED.")
-        log("CLIENT", "  -> Is server.py running on PC 2?")
-        log("CLIENT", "  -> Is SERVER_PORT correct in config.py?")
+        log("CLIENT", f"[ERROR] Connection REFUSED by {config.SERVER_IP}:{config.SERVER_PORT}.")
+        log("CLIENT", "  -> Is server running in Terminal 1 (python launch.py --all)?")
+        log("CLIENT", f"  -> Is SERVER_PORT ({config.SERVER_PORT}) correct in client/config.py?")
         sock.close()
         return None
     except socket.timeout:
@@ -433,11 +445,17 @@ def run_menu() -> None:
     """
     Display the Phase 3 client menu and handle user input.
     """
+    is_online = check_server_health()
+    status_label = "ONLINE" if is_online else "OFFLINE"
+
     print()
     print("+------------------------------------------+")
     print("|    AI-NIDS -- TCP CLIENT  (Phase 4)      |")
     print("+------------------------------------------+")
-    print(f"  Server : {config.SERVER_IP}:{config.SERVER_PORT}")
+    print(f"  Server : {config.SERVER_IP}:{config.SERVER_PORT} [{status_label}]")
+    if not is_online:
+        print("  [WARN] Server is currently unreachable.")
+        print("         Please ensure Terminal 1 is running: python launch.py --all")
     print()
 
     while True:
