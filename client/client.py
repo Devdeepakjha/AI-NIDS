@@ -55,10 +55,18 @@ import os
 import time
 from datetime import datetime
 
-# Make shared/ importable when running from the client/ directory.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Ensure both client/ and project root are in sys.path
+_CLIENT_DIR = os.path.abspath(os.path.dirname(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_CLIENT_DIR, ".."))
+for _p in [_PROJECT_ROOT, _CLIENT_DIR]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import config
+try:
+    import client.config as config
+except ImportError:
+    import config
+
 import shared.protocol as protocol
 
 

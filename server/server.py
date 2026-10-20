@@ -49,13 +49,26 @@ import os
 import time
 from datetime import datetime
 
-# Make shared/ importable when running from the server/ directory.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Ensure both server/ and project root are in sys.path
+_SERVER_DIR = os.path.abspath(os.path.dirname(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_SERVER_DIR, ".."))
+for _p in [_PROJECT_ROOT, _SERVER_DIR]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
-import config
+try:
+    import server.config as config
+except ImportError:
+    import config
+
 import shared.protocol as protocol
-from monitor import TrafficMonitor
-from dataset_writer import DatasetWriter
+
+try:
+    from server.monitor import TrafficMonitor
+    from server.dataset_writer import DatasetWriter
+except ImportError:
+    from monitor import TrafficMonitor
+    from dataset_writer import DatasetWriter
 
 
 # ---------------------------------------------------------------------------
