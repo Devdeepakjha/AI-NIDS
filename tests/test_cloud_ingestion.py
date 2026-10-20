@@ -112,6 +112,24 @@ class TestCloudIngestion(unittest.TestCase):
         )
         self.assertEqual(res3.status_code, 200)
 
+    def test_02b_missing_env_secret_fails_safely(self):
+        """When AI_NIDS_INGESTION_SECRET is not configured on the server, /api/ingest returns 503."""
+        event = self._sample_event()
+        del os.environ["AI_NIDS_INGESTION_SECRET"]
+        try:
+            res = self.client.post(
+                "/api/ingest",
+                data=json.dumps(event),
+                content_type="application/json",
+                headers={"X-AI-NIDS-Secret": "any-secret"}
+            )
+            self.assertEqual(res.status_code, 503)
+            data = res.get_json()
+            self.assertEqual(data["status"], "UNCONFIGURED")
+            self.assertIn("not configured", data["error"])
+        finally:
+            os.environ["AI_NIDS_INGESTION_SECRET"] = "test-secret-key-12345"
+
     def test_03_malformed_json_rejected(self):
         """Invalid JSON or non-dict body returns 400 BAD REQUEST."""
         res = self.client.post(

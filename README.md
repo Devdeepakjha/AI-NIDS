@@ -155,7 +155,7 @@ Deploy the web dashboard online so professors or reviewers can view your live te
      * **Region**: Oregon (US West) or closest region
      * **Branch**: `main`
      * **Build Command**: `pip install -r requirements.txt`
-     * **Start Command**: `gunicorn server.dashboard_server:app --worker-class sync --timeout 120`
+     * **Start Command**: `gunicorn server.dashboard_server:app --worker-class gthread --workers 1 --threads 8 --timeout 120`
      * **Instance Type**: `Free`
    * Under **Environment Variables**, add:
      * `AI_NIDS_INGESTION_SECRET`: `your-secure-secret-key-2026` (any passphrase of your choice)

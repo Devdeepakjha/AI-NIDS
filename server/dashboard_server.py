@@ -236,19 +236,24 @@ def create_dashboard_app(pipeline: Optional[Any] = None) -> Flask:
         Secure ingestion endpoint for receiving detection events forwarded
         from the local Demo PC.
         """
-        # 1. Authenticate if AI_NIDS_INGESTION_SECRET is configured
+        # 1. Require AI_NIDS_INGESTION_SECRET to be configured for ingestion
         expected_secret = os.environ.get("AI_NIDS_INGESTION_SECRET")
-        if expected_secret:
-            auth_hdr = request.headers.get("Authorization", "")
-            sec_hdr = request.headers.get("X-AI-NIDS-Secret", "")
-            bearer_token = auth_hdr.replace("Bearer ", "").strip() if auth_hdr.startswith("Bearer ") else auth_hdr.strip()
-            provided_secret = sec_hdr or bearer_token
+        if not expected_secret or not expected_secret.strip():
+            return jsonify({
+                "status": "UNCONFIGURED",
+                "error": "Server ingestion is disabled: AI_NIDS_INGESTION_SECRET environment variable is not configured."
+            }), 503
 
-            if provided_secret != expected_secret:
-                return jsonify({
-                    "status": "UNAUTHORIZED",
-                    "error": "Missing or invalid ingestion secret."
-                }), 401
+        auth_hdr = request.headers.get("Authorization", "")
+        sec_hdr = request.headers.get("X-AI-NIDS-Secret", "")
+        bearer_token = auth_hdr.replace("Bearer ", "").strip() if auth_hdr.startswith("Bearer ") else auth_hdr.strip()
+        provided_secret = sec_hdr or bearer_token
+
+        if provided_secret != expected_secret:
+            return jsonify({
+                "status": "UNAUTHORIZED",
+                "error": "Missing or invalid ingestion secret."
+            }), 401
 
         # 2. Check JSON content
         if not request.is_json:
