@@ -58,6 +58,8 @@ class CloudEventForwarder:
         self._worker_thread: Optional[threading.Thread] = None
         self.events_sent = 0
         self.events_failed = 0
+        self.last_status_code: Optional[int] = None
+        self.last_error: Optional[str] = None
 
     def start(self) -> None:
         if not REQUESTS_AVAILABLE:
@@ -123,14 +125,19 @@ class CloudEventForwarder:
 
             try:
                 resp = session.post(self.ingest_endpoint, json=event, headers=headers, timeout=4.0)
+                self.last_status_code = resp.status_code
                 if resp.status_code in (200, 201):
                     self.events_sent += 1
+                    self.last_error = None
                 else:
                     self.events_failed += 1
+                    err_msg = f"HTTP {resp.status_code}"
+                    self.last_error = err_msg
                     if self.events_failed <= 3 or self.events_failed % 25 == 0:
-                        print(f"[CLOUD-FORWARDER] Cloud rejected event: HTTP {resp.status_code}")
+                        print(f"[CLOUD-FORWARDER] Cloud rejected event: {err_msg}")
             except Exception as exc:
                 self.events_failed += 1
+                self.last_error = str(exc)
                 if self.events_failed <= 3 or self.events_failed % 25 == 0:
                     print(f"[CLOUD-FORWARDER] Delivery error to {self.cloud_url}: {exc}")
 
@@ -180,6 +187,7 @@ class LiveInferencePipeline:
         self._subscribers: List[queue.Queue] = []
         self._recent_events: List[Dict[str, Any]] = []
         self._seen_sigs: deque = deque(maxlen=1000)
+        self._events_published_count = 0
 
         self.stats = {
             "packets_captured": 0,
@@ -206,8 +214,6 @@ class LiveInferencePipeline:
                 return True
 
             cap_ok = self.packet_capture.start()
-            if not cap_ok:
-                return False
 
             if self.cloud_forwarder:
                 self.cloud_forwarder.start()
@@ -220,8 +226,11 @@ class LiveInferencePipeline:
             )
             self._worker_thread.start()
             self._is_running = True
-            print("[PIPELINE] Live packet inference pipeline started.")
-            return True
+            if cap_ok:
+                print("[PIPELINE] Live packet inference pipeline started.")
+            else:
+                print(f"[PIPELINE] Packet capture inactive: {self.packet_capture.error_reason}")
+            return cap_ok
 
     def stop(self) -> None:
         """Stop packet capture, cloud forwarder, and pipeline cleanly."""
@@ -257,6 +266,7 @@ class LiveInferencePipeline:
         """Dispatch event to all active SSE subscribers and optional cloud forwarder."""
         dead = []
         with self._lock:
+            self._events_published_count += 1
             self._recent_events.append(event)
             if len(self._recent_events) > 100:
                 self._recent_events = self._recent_events[-100:]
@@ -413,6 +423,8 @@ class LiveInferencePipeline:
                 "forwarding_enabled": bool(self.cloud_forwarder),
                 "events_forwarded": self.cloud_forwarder.events_sent if self.cloud_forwarder else 0,
                 "forwarding_failures": self.cloud_forwarder.events_failed if self.cloud_forwarder else 0,
+                "last_status_code": self.cloud_forwarder.last_status_code if self.cloud_forwarder else None,
+                "last_error": self.cloud_forwarder.last_error if self.cloud_forwarder else None,
                 "target_cloud_url": self.cloud_forwarder.cloud_url if self.cloud_forwarder else None
             }
             return {
@@ -422,10 +434,13 @@ class LiveInferencePipeline:
                     "running": self.packet_capture.is_running,
                     "interface": self.packet_capture.interface,
                     "filter": self.packet_capture.bpf_filter,
+                    "packet_count": self.packet_capture.packet_count,
+                    "error": self.packet_capture.error_reason,
                 },
                 "telemetry": {
                     "active_flows": self.flow_tracker.active_flows_count,
                     "total_flows": self.flow_tracker.total_flows_count,
+                    "sse_events_published": self._events_published_count,
                     **self.stats
                 },
                 "recent_events": list(self._recent_events[-20:]),

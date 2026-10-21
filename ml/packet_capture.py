@@ -57,10 +57,26 @@ def find_loopback_interface() -> Optional[str]:
     if env_iface:
         return env_iface
 
-    # Always prioritize Scapy's conf.loopback_name if defined (e.g. \Device\NPF_Loopback)
+    # If Npcap is installed, look for NPF_Loopback or Npcap Loopback Adapter in conf.ifaces
+    try:
+        if hasattr(conf, "ifaces"):
+            for dev_key, dev_obj in conf.ifaces.items():
+                if dev_key == r"\Device\NPF_Loopback" or dev_key == "NPF_Loopback":
+                    return dev_key
+                desc = getattr(dev_obj, "description", "").lower()
+                name = getattr(dev_obj, "name", "").lower()
+                if "npcap loopback" in desc or "npcap loopback" in name:
+                    return dev_key
+    except Exception:
+        pass
+
+    # Check conf.loopback_name if resolvable in Scapy conf.ifaces
     try:
         if hasattr(conf, "loopback_name") and conf.loopback_name:
-            return str(conf.loopback_name)
+            if hasattr(conf, "ifaces"):
+                for dev_key, dev_obj in conf.ifaces.items():
+                    if getattr(dev_obj, "name", "") == str(conf.loopback_name):
+                        return dev_key
     except Exception:
         pass
 
@@ -85,6 +101,7 @@ class PacketCapture:
 
         self._sniffer: Optional[Any] = None
         self._is_running = False
+        self.error_reason: Optional[str] = None
         self._lock = threading.Lock()
         self._packet_count = 0
         self._packet_queue: queue.Queue = queue.Queue(maxsize=10000)
@@ -104,10 +121,11 @@ class PacketCapture:
     def start(self) -> bool:
         """
         Start the packet capture thread.
-        Returns True if successfully started, False otherwise.
+        Returns True if successfully started and verified alive, False otherwise.
         """
         if not SCAPY_AVAILABLE:
-            print("[CAPTURE] Scapy not available. Cannot start capture.")
+            self.error_reason = "Scapy library not installed"
+            print(f"[CAPTURE] {self.error_reason}")
             return False
 
         with self._lock:
@@ -131,11 +149,27 @@ class PacketCapture:
                     store=False
                 )
                 self._sniffer.start()
-                time.sleep(0.3)  # Brief warm-up for Npcap capture thread initialization
+
+                # Verify that Scapy's internal sniffer thread actually started and didn't crash
+                time.sleep(0.4)
+                sniff_thread = getattr(self._sniffer, "thread", None)
+                if not sniff_thread or not sniff_thread.is_alive():
+                    exc = getattr(self._sniffer, "exception", None)
+                    err_msg = (
+                        f"Npcap driver not installed or packet sniffer thread died on '{self.interface}': {exc}"
+                    )
+                    self.error_reason = err_msg
+                    print(f"[CAPTURE] ERROR: {err_msg}")
+                    self._stop_worker.set()
+                    self._is_running = False
+                    return False
+
                 self._is_running = True
+                self.error_reason = None
                 print(f"[CAPTURE] Packet capture started on '{self.interface}' with filter '{self.bpf_filter}'")
                 return True
             except Exception as exc:
+                self.error_reason = str(exc)
                 print(f"[CAPTURE] Failed to start AsyncSniffer: {exc}")
                 self._stop_worker.set()
                 self._is_running = False

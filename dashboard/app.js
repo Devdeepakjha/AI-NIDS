@@ -80,24 +80,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Capture status
     if (data.packet_capture) {
-      const isRunning = data.packet_capture.running;
-      elements.captureState.textContent = isRunning ? "ACTIVE" : (data.mode === "CLOUD_RECEIVER" ? "LISTENING" : "IDLE");
-      elements.captureState.style.color = isRunning ? "#10b981" : "#94a3b8";
-      elements.detailIface.textContent = `Interface: ${data.packet_capture.interface || "Loopback"}`;
+      const isRunning = Boolean(data.packet_capture.running);
+      const hasError = Boolean(data.packet_capture.error);
+      const badgeCap = document.getElementById("badgeCapture");
+      const dotCap = badgeCap ? badgeCap.querySelector(".dot") : null;
+
+      if (isRunning) {
+        elements.captureState.textContent = "ACTIVE";
+        elements.captureState.style.color = "#10b981";
+        if (dotCap) dotCap.className = "dot active";
+        elements.detailIface.textContent = `Interface: ${data.packet_capture.interface || "Loopback"}`;
+      } else if (hasError) {
+        elements.captureState.textContent = "BLOCKED (NPCAP NEEDED)";
+        elements.captureState.style.color = "#ef4444";
+        if (dotCap) dotCap.className = "dot danger";
+        elements.detailIface.textContent = `Capture blocked: Npcap driver not installed on Windows`;
+      } else {
+        const fallbackText = data.mode === "CLOUD_RECEIVER" ? "INGESTING" : "IDLE";
+        elements.captureState.textContent = fallbackText;
+        elements.captureState.style.color = "#94a3b8";
+        if (dotCap) dotCap.className = "dot warning";
+        elements.detailIface.textContent = `Interface: ${data.packet_capture.interface || "Loopback"}`;
+      }
     }
 
-    // Telemetry stats
+    // Telemetry stats & Diagnostics
     if (data.telemetry) {
       const t = data.telemetry;
+      const sseCount = t.sse_events_published !== undefined ? t.sse_events_published : eventRowsCount;
       elements.valPackets.textContent = (t.packets_captured || 0).toLocaleString();
       elements.valFlows.textContent = (t.total_flows || 0).toLocaleString();
       elements.detailActiveFlows.textContent = `Active: ${t.active_flows || 0} flows | Total: ${t.total_flows || 0}`;
       elements.valVectors.textContent = `${t.vectors_valid || 0} / ${t.vectors_rejected || 0}`;
+      elements.detailVectors.textContent = `Gate: ${t.vectors_valid || 0} valid, ${t.vectors_rejected || 0} refused | SSE: ${sseCount} events`;
       elements.valPredictions.textContent = (t.predictions_made || 0).toLocaleString();
       elements.detailClasses.textContent = `Benign: ${t.benign_count || 0} | Intrusion: ${t.intrusion_count || 0} (0 Fabricated)`;
 
       if (t.total_flows > 0 && elements.flowState) {
         elements.flowState.textContent = "ACTIVE";
+      }
+    }
+
+    // Cloud forwarder diagnostics
+    if (data.cloud_forwarder && data.cloud_forwarder.forwarding_enabled) {
+      const cf = data.cloud_forwarder;
+      const fwdStatus = `Cloud: ${cf.events_forwarded || 0} forwarded (${cf.forwarding_failures || 0} failed)`;
+      if (elements.streamLabel && data.mode !== "CLOUD_RECEIVER") {
+        elements.streamLabel.title = fwdStatus;
       }
     }
 
@@ -213,6 +242,9 @@ document.addEventListener("DOMContentLoaded", () => {
           elements.valPackets.textContent = (curPkts + (msg.data.spkts || 0) + (msg.data.dpkts || 0)).toLocaleString();
           const curFlows = parseInt(elements.valFlows.textContent.replace(/,/g, "")) || 0;
           elements.valFlows.textContent = (curFlows + 1).toLocaleString();
+          if (elements.detailVectors) {
+            elements.detailVectors.textContent = `Gate: ${elements.valVectors.textContent} | SSE: ${eventRowsCount} events`;
+          }
         } else if (msg.type === "heartbeat") {
           elements.detailActiveFlows.textContent = `Active: ${msg.active_flows || 0} flows`;
         }

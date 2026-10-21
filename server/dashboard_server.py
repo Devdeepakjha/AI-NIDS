@@ -61,6 +61,7 @@ class CloudTelemetryPipeline:
         self._seen_sigs = deque(maxlen=1000)
         self.ingested_count = 0
         self.last_ingest_time = None
+        self._events_published_count = 0
 
         self.stats = {
             "packets_captured": 0,
@@ -89,6 +90,7 @@ class CloudTelemetryPipeline:
     def _publish_event(self, event: Dict[str, Any]) -> None:
         dead = []
         with self._lock:
+            self._events_published_count += 1
             self._recent_events.append(event)
             if len(self._recent_events) > 100:
                 self._recent_events = self._recent_events[-100:]
@@ -164,6 +166,7 @@ class CloudTelemetryPipeline:
                 "telemetry": {
                     "active_flows": self.stats["flows_reconstructed"],
                     "total_flows": self.stats["flows_reconstructed"],
+                    "sse_events_published": self._events_published_count,
                     **self.stats
                 },
                 "recent_events": list(self._recent_events[-20:]),

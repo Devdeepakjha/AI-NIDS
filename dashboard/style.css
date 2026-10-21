@@ -110,7 +110,20 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--text-dim);
+  display: inline-block;
+}
+
+.dot.active {
   background: var(--success);
+}
+
+.dot.warning {
+  background: var(--warning);
+}
+
+.dot.danger {
+  background: var(--danger);
 }
 
 /* Notice Banner */

@@ -57,7 +57,10 @@ def run_full_system(cloud_url: str = None, cloud_secret: str = None):
     if cap_ok:
         print(f"[CAPTURE] Packet capture active on: {pipe.packet_capture.interface}")
     else:
-        print("[CAPTURE] Live packet sniffer inactive (Npcap not installed). Fallback mode active.")
+        err = pipe.packet_capture.error_reason or "Npcap driver not detected"
+        print(f"[CAPTURE] Live packet sniffer inactive: {err}")
+        print("[CAPTURE] To sniff Windows loopback (127.0.0.1) packets, install Npcap from https://npcap.com/#download")
+        print("[CAPTURE] with 'WinPcap API-compatible Mode' and 'Support loopback traffic' enabled.")
 
     dash_server = DashboardServer(pipe, host="127.0.0.1", port=5055)
     if not dash_server.start():
