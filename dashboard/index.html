@@ -19,6 +19,7 @@
       </div>
       <div class="system-badges" id="systemBadges">
         <div class="status-badge" id="badgeMode"><span class="dot active"></span> Mode: <strong id="systemMode">LOCAL SNIFFER</strong></div>
+        <div class="status-badge" id="badgeCloud"><span class="dot"></span> Cloud Relay: <strong id="cloudState">LOCAL ONLY</strong></div>
         <div class="status-badge" id="badgeServer"><span class="dot warning"></span> TCP Server (5000): <strong id="serverState">CHECKING...</strong></div>
         <div class="status-badge" id="badgeCapture"><span class="dot warning"></span> Packet Capture: <strong id="captureState">INITIALIZING...</strong></div>
         <div class="status-badge" id="badgeFlow"><span class="dot active"></span> Flow Tracker: <strong id="flowState">ACTIVE</strong></div>
@@ -56,6 +57,11 @@
         <div class="metric-label">Live Model Predictions</div>
         <div class="metric-value" id="valPredictions">0</div>
         <div class="metric-detail" id="detailClasses">Benign: 0 | Intrusion: 0 (0 Fabricated)</div>
+      </div>
+      <div class="metric-card" id="cardCloud">
+        <div class="metric-label">Cloud Forwarding / Relay</div>
+        <div class="metric-value" id="valCloud">LOCAL ONLY</div>
+        <div class="metric-detail" id="detailCloud">Target: Local Dashboard Only</div>
       </div>
     </section>
 

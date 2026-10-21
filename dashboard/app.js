@@ -8,7 +8,10 @@ document.addEventListener("DOMContentLoaded", () => {
     serverState: document.getElementById("serverState"),
     flowState: document.getElementById("flowState"),
     gateState: document.getElementById("gateState"),
-    mlState: document.getElementById("mlState"),
+    badgeCloud: document.getElementById("badgeCloud"),
+    cloudState: document.getElementById("cloudState"),
+    valCloud: document.getElementById("valCloud"),
+    detailCloud: document.getElementById("detailCloud"),
     valPackets: document.getElementById("valPackets"),
     valFlows: document.getElementById("valFlows"),
     valVectors: document.getElementById("valVectors"),
@@ -121,12 +124,71 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // Cloud forwarder diagnostics
-    if (data.cloud_forwarder && data.cloud_forwarder.forwarding_enabled) {
+    // Cloud forwarder / Cloud receiver diagnostics
+    const badgeCloud = elements.badgeCloud;
+    const dotCloud = badgeCloud ? badgeCloud.querySelector(".dot") : null;
+
+    if (data.mode === "CLOUD_RECEIVER") {
+      const cr = data.cloud_receiver || {};
+      const ing = cr.ingested_count || 0;
+      if (elements.cloudState) {
+        elements.cloudState.textContent = `INGESTING (${ing} EVENTS)`;
+        elements.cloudState.style.color = "#38bdf8";
+      }
+      if (dotCloud) dotCloud.className = "dot active";
+      if (elements.valCloud) {
+        elements.valCloud.textContent = `${ing.toLocaleString()} Ingested`;
+      }
+      if (elements.detailCloud) {
+        const lastTime = cr.last_ingest_time ? new Date(cr.last_ingest_time * 1000).toLocaleTimeString() : "Awaiting first event";
+        elements.detailCloud.textContent = `Live Telemetry via /api/ingest | Last: ${lastTime}`;
+      }
+    } else if (data.cloud_forwarder && data.cloud_forwarder.forwarding_enabled) {
       const cf = data.cloud_forwarder;
-      const fwdStatus = `Cloud: ${cf.events_forwarded || 0} forwarded (${cf.forwarding_failures || 0} failed)`;
-      if (elements.streamLabel && data.mode !== "CLOUD_RECEIVER") {
+      const sent = cf.events_forwarded || 0;
+      const failed = cf.forwarding_failures || 0;
+      const queued = cf.events_queued || 0;
+      const pending = cf.queue_pending || 0;
+      const status = cf.last_status_code ? `HTTP ${cf.last_status_code}` : "READY";
+
+      if (elements.cloudState) {
+        if (cf.last_status_code === 200 || cf.last_status_code === 201) {
+          elements.cloudState.textContent = `ACTIVE (${sent} SENT)`;
+          elements.cloudState.style.color = "#10b981";
+          if (dotCloud) dotCloud.className = "dot active";
+        } else if (failed > 0 && sent === 0) {
+          elements.cloudState.textContent = `FAILING (${status})`;
+          elements.cloudState.style.color = "#ef4444";
+          if (dotCloud) dotCloud.className = "dot danger";
+        } else {
+          elements.cloudState.textContent = `FORWARDING (${sent} SENT)`;
+          elements.cloudState.style.color = "#f59e0b";
+          if (dotCloud) dotCloud.className = "dot warning";
+        }
+      }
+
+      if (elements.valCloud) {
+        elements.valCloud.textContent = `${sent.toLocaleString()} Sent`;
+      }
+      if (elements.detailCloud) {
+        elements.detailCloud.textContent = `Queued: ${queued} (Pending: ${pending}) | Failures: ${failed} | Last: ${status}`;
+      }
+
+      const fwdStatus = `Cloud Forwarder: ${sent} forwarded, ${failed} failed (${status})`;
+      if (elements.streamLabel) {
         elements.streamLabel.title = fwdStatus;
+      }
+    } else {
+      if (elements.cloudState) {
+        elements.cloudState.textContent = "LOCAL ONLY";
+        elements.cloudState.style.color = "#94a3b8";
+      }
+      if (dotCloud) dotCloud.className = "dot";
+      if (elements.valCloud) {
+        elements.valCloud.textContent = "LOCAL ONLY";
+      }
+      if (elements.detailCloud) {
+        elements.detailCloud.textContent = "Start with --cloud-url to relay live events to Render";
       }
     }
 
@@ -237,14 +299,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (msg.type === "event") {
           appendEventRow(msg.data);
           updateLatestEventCard(msg.data);
-          // Increment live packet counter
-          const curPkts = parseInt(elements.valPackets.textContent.replace(/,/g, "")) || 0;
-          elements.valPackets.textContent = (curPkts + (msg.data.spkts || 0) + (msg.data.dpkts || 0)).toLocaleString();
-          const curFlows = parseInt(elements.valFlows.textContent.replace(/,/g, "")) || 0;
-          elements.valFlows.textContent = (curFlows + 1).toLocaleString();
-          if (elements.detailVectors) {
-            elements.detailVectors.textContent = `Gate: ${elements.valVectors.textContent} | SSE: ${eventRowsCount} events`;
-          }
+          scheduleStatusPoll();
         } else if (msg.type === "heartbeat") {
           elements.detailActiveFlows.textContent = `Active: ${msg.active_flows || 0} flows`;
         }
@@ -289,11 +344,30 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Initial fetch of status
+  // Authoritative status polling
+  let pollTimeout = null;
+  function scheduleStatusPoll() {
+    if (pollTimeout) clearTimeout(pollTimeout);
+    pollTimeout = setTimeout(() => {
+      fetch("/api/status")
+        .then(r => r.json())
+        .then(data => updateStatusSummary(data))
+        .catch(err => console.warn("Status poll error:", err));
+    }, 250);
+  }
+
+  // Initial fetch of status and 3-second heartbeat polling
   fetch("/api/status")
     .then(r => r.json())
     .then(data => updateStatusSummary(data))
     .catch(err => console.warn("Initial status fetch failed:", err));
+
+  setInterval(() => {
+    fetch("/api/status")
+      .then(r => r.json())
+      .then(data => updateStatusSummary(data))
+      .catch(err => console.warn("Periodic status poll failed:", err));
+  }, 3000);
 
   // Connect live stream
   connectSSE();

@@ -115,9 +115,14 @@ def _connect() -> tuple:
     """Return (sock, buf) connected to the local test server."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(30)   # 30s on connect AND subsequent recv/send
-    sock.connect((SERVER_HOST, SERVER_PORT))
-    # Do NOT remove the timeout -- recv_message() must never block forever.
-    # 30s is generous enough for all test sessions.
+    for attempt in range(8):
+        try:
+            sock.connect((SERVER_HOST, SERVER_PORT))
+            break
+        except ConnectionRefusedError:
+            if attempt == 7:
+                raise
+            time.sleep(0.5)
     return sock, bytearray()
 
 def _send_recv(sock: socket.socket, buf: bytearray, req_type: str, payload: str) -> dict:

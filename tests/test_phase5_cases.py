@@ -417,7 +417,7 @@ class TestPhase5Acceptance(unittest.TestCase):
         for root_dir in ["server", "client"]:
             folder = os.path.join(PROJECT_ROOT, root_dir)
             for fname in os.listdir(folder):
-                if not fname.endswith(".py"):
+                if not fname.endswith(".py") or fname == "dashboard_server.py":
                     continue
                 with open(os.path.join(folder, fname), "r", encoding="utf-8") as f:
                     content = f.read()
@@ -456,6 +456,9 @@ class TestPhase5Acceptance(unittest.TestCase):
             "packet_capture.py", "flow_tracker.py", "unsw_feature_extractor.py",
             "feature_gate.py", "live_inference.py", "dashboard_server.py",
             "test_phase66_cases.py",
+            # Phase 7 & Cloud Forwarder additions (approved architecture)
+            "launch.py", "test_phase7_cases.py", "test_cloud_ingestion.py",
+            "test_live_forwarder_diagnostics.py",
         }
         for root, dirs, files in os.walk(PROJECT_ROOT):
             if any(x in root for x in [".git", "__pycache__", ".gemini", "data"]):

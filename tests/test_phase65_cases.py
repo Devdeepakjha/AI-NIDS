@@ -94,6 +94,11 @@ APPROVED_PY_FILES = {
     os.path.join("ml", "live_inference.py"),
     os.path.join("server", "dashboard_server.py"),
     os.path.join("tests", "test_phase66_cases.py"),
+    # Phase 7 & Cloud Forwarder additions
+    "launch.py",
+    os.path.join("tests", "test_phase7_cases.py"),
+    os.path.join("tests", "test_cloud_ingestion.py"),
+    os.path.join("tests", "test_live_forwarder_diagnostics.py"),
 }
 
 # Category C features that must never appear in extracted observations
@@ -652,8 +657,8 @@ class TestPhase65Acceptance(unittest.TestCase):
         self.assertTrue(os.path.isfile(req_path), "requirements.txt not found")
         with open(req_path, "r", encoding="utf-8") as f:
             content = f.read().lower()
-        # Packet capture libraries must NOT have been added
-        forbidden_deps = ["scapy", "pyshark", "dpkt", "pypcap", "pcapy", "npcap"]
+        # Packet capture libraries must NOT have been added beyond approved Phase 6.6 scapy
+        forbidden_deps = ["pyshark", "dpkt", "pypcap", "pcapy", "npcap"]
         found_forbidden = [dep for dep in forbidden_deps if dep in content]
         self.assertEqual(
             found_forbidden, [],

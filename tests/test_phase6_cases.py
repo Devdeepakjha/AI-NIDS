@@ -588,6 +588,9 @@ class TestPhase6Acceptance(unittest.TestCase):
             "packet_capture.py", "flow_tracker.py", "unsw_feature_extractor.py",
             "feature_gate.py", "live_inference.py", "dashboard_server.py",
             "test_phase66_cases.py",
+            # Phase 7 & Cloud Forwarder additions (approved architecture)
+            "launch.py", "test_phase7_cases.py", "test_cloud_ingestion.py",
+            "test_live_forwarder_diagnostics.py",
         }
         for root, dirs, files in os.walk(PROJECT_ROOT):
             if any(x in root for x in [".git", "__pycache__", ".gemini", "data"]):
@@ -661,9 +664,16 @@ class TestPhase6Acceptance(unittest.TestCase):
         )
         time.sleep(1.0)
         try:
-            # Connect real client socket to live server
+            # Connect real client socket to live server with retry loop
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect(("127.0.0.1", 5000))
+            for attempt in range(8):
+                try:
+                    s.connect(("127.0.0.1", 5000))
+                    break
+                except ConnectionRefusedError:
+                    if attempt == 7:
+                        raise
+                    time.sleep(0.5)
             client_ip, client_port = s.getsockname()
 
             client_buf = bytearray()

@@ -39,8 +39,9 @@ def run_full_system(cloud_url: str = None, cloud_secret: str = None):
     print("=" * 70)
     print("-> TCP Socket Server   : 0.0.0.0:5000")
     print("-> Web Telemetry Console: http://127.0.0.1:5055/")
-    if cloud_url or os.environ.get("AI_NIDS_CLOUD_URL"):
-        c_url = cloud_url or os.environ.get("AI_NIDS_CLOUD_URL")
+    c_url = cloud_url or os.environ.get("AI_NIDS_CLOUD_URL")
+    c_sec = cloud_secret or os.environ.get("AI_NIDS_INGESTION_SECRET")
+    if c_url:
         print(f"-> Cloud Forwarding    : Active -> {c_url}")
     print("=" * 70)
 
@@ -50,8 +51,8 @@ def run_full_system(cloud_url: str = None, cloud_secret: str = None):
 
     pipe = LiveInferencePipeline(
         bpf_filter="tcp port 5000",
-        cloud_url=cloud_url,
-        cloud_secret=cloud_secret
+        cloud_url=c_url,
+        cloud_secret=c_sec
     )
     cap_ok = pipe.start()
     if cap_ok:
@@ -197,7 +198,7 @@ def main():
     if args.cloud_secret:
         os.environ["AI_NIDS_INGESTION_SECRET"] = args.cloud_secret
 
-    if args.all:
+    if args.all or args.cloud_url:
         run_full_system(args.cloud_url, args.cloud_secret)
     elif args.cloud_dashboard:
         run_cloud_dashboard()

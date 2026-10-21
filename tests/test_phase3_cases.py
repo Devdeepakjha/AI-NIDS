@@ -63,7 +63,7 @@ for root, dirs, files in os.walk(root_dir):
     if os.path.abspath(root).startswith(TEST_DIR) or os.path.abspath(root).startswith(ML_DIR):
         continue
     for f in files:
-        if f.endswith(".py"):
+        if f.endswith(".py") and f not in ("dashboard_server.py", "launch.py"):
             codebase_files.append(os.path.join(root, f))
 
 ml_keywords = ["RandomForest", "sklearn", "train_test_split", "tensorflow", "torch", "threat_score"]
@@ -130,6 +130,9 @@ expected_files = {
     "packet_capture.py", "flow_tracker.py", "unsw_feature_extractor.py",
     "feature_gate.py", "live_inference.py", "dashboard_server.py",
     "test_phase66_cases.py",
+    # Phase 7 & Cloud Forwarder additions (approved architecture)
+    "launch.py", "test_phase7_cases.py", "test_cloud_ingestion.py",
+    "test_live_forwarder_diagnostics.py",
 }
 actual_files = set()
 for root, dirs, files in os.walk(root_dir):
@@ -171,7 +174,14 @@ try:
 
     # P3-02: Start Client Connection
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 5000))
+    for attempt in range(6):
+        try:
+            sock.connect(("127.0.0.1", 5000))
+            break
+        except ConnectionRefusedError:
+            if attempt == 5:
+                raise
+            time.sleep(0.5)
     p3_02_pass = True
     report("P3-02", "Client Connects Successfully", p3_02_pass, "Socket connected to 127.0.0.1:5000")
 

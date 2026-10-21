@@ -59,6 +59,7 @@ class CloudTelemetryPipeline:
         self._subscribers = []
         self._recent_events = []
         self._seen_sigs = deque(maxlen=1000)
+        self._flow_packets: Dict[str, Tuple[int, int]] = {}
         self.ingested_count = 0
         self.last_ingest_time = None
         self._events_published_count = 0
@@ -126,8 +127,15 @@ class CloudTelemetryPipeline:
 
             spkts = int(event.get("spkts", 0))
             dpkts = int(event.get("dpkts", 0))
-            self.stats["packets_captured"] += (spkts + dpkts)
-            self.stats["flows_reconstructed"] += 1
+            if flow_id not in self._flow_packets:
+                self.stats["flows_reconstructed"] += 1
+                delta_pkts = spkts + dpkts
+            else:
+                prev_s, prev_d = self._flow_packets[flow_id]
+                delta_pkts = max(0, spkts - prev_s) + max(0, dpkts - prev_d)
+            self._flow_packets[flow_id] = (spkts, dpkts)
+
+            self.stats["packets_captured"] += delta_pkts
             self.stats["vectors_evaluated"] += 1
 
             status = event.get("inference_status", "SKIPPED")

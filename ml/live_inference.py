@@ -56,10 +56,16 @@ class CloudEventForwarder:
         self.queue: queue.Queue = queue.Queue(maxsize=1000)
         self._stop_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
+        self._forwarded_sigs: deque = deque(maxlen=2000)
+        self.events_enqueued = 0
         self.events_sent = 0
         self.events_failed = 0
         self.last_status_code: Optional[int] = None
         self.last_error: Optional[str] = None
+
+    @property
+    def queue_pending(self) -> int:
+        return self.queue.qsize()
 
     def start(self) -> None:
         if not REQUESTS_AVAILABLE:
@@ -85,37 +91,56 @@ class CloudEventForwarder:
         if not self._worker_thread or not self._worker_thread.is_alive():
             return
 
+        flow_id = event.get("flow_id", "")
+        spkts = int(event.get("spkts", 0))
+        dpkts = int(event.get("dpkts", 0))
+        gate_status = event.get("gate_status", "")
+        sig = (flow_id, spkts, dpkts, gate_status)
+
+        # Avoid redundant duplicate intermediate flow snapshots
+        if sig in self._forwarded_sigs:
+            return
+        self._forwarded_sigs.append(sig)
+
         # Strip any local machine paths or secrets before transmitting
         clean_event = {
             "timestamp": event.get("timestamp"),
-            "flow_id": event.get("flow_id"),
+            "flow_id": flow_id,
             "src_ip": event.get("src_ip"),
             "src_port": event.get("src_port"),
             "dst_ip": event.get("dst_ip"),
             "dst_port": event.get("dst_port"),
             "protocol": event.get("protocol"),
             "duration": event.get("duration"),
-            "spkts": event.get("spkts"),
-            "dpkts": event.get("dpkts"),
+            "spkts": spkts,
+            "dpkts": dpkts,
             "sbytes": event.get("sbytes"),
             "dbytes": event.get("dbytes"),
-            "gate_status": event.get("gate_status"),
+            "gate_status": gate_status,
             "inference_status": event.get("inference_status"),
             "prediction": event.get("prediction"),
             "probability": event.get("probability"),
             "reasons": event.get("reasons"),
             "origin": "demo_pc_capture"
         }
+
+        self.events_enqueued += 1
         try:
             self.queue.put_nowait(clean_event)
         except queue.Full:
-            pass
+            # Drop oldest unforwarded event to ensure recent live events are never blocked
+            try:
+                _ = self.queue.get_nowait()
+                self.queue.put_nowait(clean_event)
+            except Exception:
+                pass
 
     def _worker_loop(self) -> None:
         session = requests.Session()
         headers = {"Content-Type": "application/json"}
         if self.secret:
             headers["X-AI-NIDS-Secret"] = self.secret
+            headers["Authorization"] = f"Bearer {self.secret}"
 
         while not self._stop_event.is_set():
             try:
@@ -124,14 +149,19 @@ class CloudEventForwarder:
                 continue
 
             try:
-                resp = session.post(self.ingest_endpoint, json=event, headers=headers, timeout=4.0)
+                resp = session.post(self.ingest_endpoint, json=event, headers=headers, timeout=10.0)
                 self.last_status_code = resp.status_code
                 if resp.status_code in (200, 201):
                     self.events_sent += 1
                     self.last_error = None
                 else:
                     self.events_failed += 1
-                    err_msg = f"HTTP {resp.status_code}"
+                    try:
+                        err_json = resp.json()
+                        err_detail = err_json.get("error", err_json.get("message", "Rejected"))
+                    except Exception:
+                        err_detail = resp.text[:60] if resp.text else "Rejected"
+                    err_msg = f"HTTP {resp.status_code} ({err_detail})"
                     self.last_error = err_msg
                     if self.events_failed <= 3 or self.events_failed % 25 == 0:
                         print(f"[CLOUD-FORWARDER] Cloud rejected event: {err_msg}")
@@ -189,6 +219,8 @@ class LiveInferencePipeline:
         self._seen_sigs: deque = deque(maxlen=1000)
         self._events_published_count = 0
 
+        self._flow_packets: Dict[str, Tuple[int, int]] = {}
+
         self.stats = {
             "packets_captured": 0,
             "flows_reconstructed": 0,
@@ -213,10 +245,10 @@ class LiveInferencePipeline:
             if self._is_running:
                 return True
 
-            cap_ok = self.packet_capture.start()
-
             if self.cloud_forwarder:
                 self.cloud_forwarder.start()
+
+            cap_ok = self.packet_capture.start()
 
             self._stop_event.clear()
             self._worker_thread = threading.Thread(
@@ -304,8 +336,15 @@ class LiveInferencePipeline:
 
             spkts = int(event.get("spkts", 0))
             dpkts = int(event.get("dpkts", 0))
-            self.stats["packets_captured"] += (spkts + dpkts)
-            self.stats["flows_reconstructed"] += 1
+            if flow_id not in self._flow_packets:
+                self.stats["flows_reconstructed"] += 1
+                delta_pkts = spkts + dpkts
+            else:
+                prev_s, prev_d = self._flow_packets[flow_id]
+                delta_pkts = max(0, spkts - prev_s) + max(0, dpkts - prev_d)
+            self._flow_packets[flow_id] = (spkts, dpkts)
+
+            self.stats["packets_captured"] += delta_pkts
             self.stats["vectors_evaluated"] += 1
 
             status = event.get("inference_status", "SKIPPED")
@@ -403,7 +442,13 @@ class LiveInferencePipeline:
                     event_data["reasons"] = [f"Inference error: {exc}"]
             else:
                 self.stats["vectors_rejected"] += 1
-                self.stats["last_skip_reason"] = reasons[0] if reasons else "Incomplete features"
+                unavailable_features = [k for k, v in features.items() if v is None]
+                if unavailable_features:
+                    skip_reason = f"Protocol-specific features unavailable on JSON/TCP ({', '.join(sorted(unavailable_features))}). Safe refusal enforced."
+                else:
+                    skip_reason = reasons[0] if reasons else "Incomplete features"
+                self.stats["last_skip_reason"] = skip_reason
+                event_data["reasons"] = [skip_reason] + [r for r in reasons if r != skip_reason]
 
         # Publish telemetry update
         self._publish_event(event_data)
@@ -421,6 +466,8 @@ class LiveInferencePipeline:
         with self._lock:
             cloud_info = {
                 "forwarding_enabled": bool(self.cloud_forwarder),
+                "events_queued": self.cloud_forwarder.events_enqueued if self.cloud_forwarder else 0,
+                "queue_pending": self.cloud_forwarder.queue_pending if self.cloud_forwarder else 0,
                 "events_forwarded": self.cloud_forwarder.events_sent if self.cloud_forwarder else 0,
                 "forwarding_failures": self.cloud_forwarder.events_failed if self.cloud_forwarder else 0,
                 "last_status_code": self.cloud_forwarder.last_status_code if self.cloud_forwarder else None,
